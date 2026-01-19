@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gait Cycle Analyzer</title>
+    <style>
+        body {
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px;
+            background-color: #f4f4f9;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        h2 { margin-top: 0; }
+
+        /* --- Controls & Layout --- */
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .data-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-bottom: 5px;
+            border-bottom: 1px solid #ccc;
+        }
+
+        .tab-buttons {
+            display: flex;
+            gap: 5px;
+            margin-bottom: -1px; /* Overlap border */
+        }
+
+        .tab-btn {
+            padding: 10px 20px;
+            border: 1px solid #ccc;
+            border-bottom: 1px solid #ccc;
+            background: #eee;
+            cursor: pointer;
+            border-radius: 4px 4px 0 0;
+            font-weight: 500;
+            font-size: 14px;
+            color: #666;
+            min-width: 100px;
+            text-align: center;
+        }
+
+        .tab-btn.active {
+            background: #fff;
+            border-bottom: 1px solid #fff;
+            color: #2c3e50;
+            font-weight: bold;
+            border-top: 3px solid #3498db;
+        }
+
+        .input-wrapper {
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-top: none;
+            background: #fff;
+            border-radius: 0 0 4px 4px;
+        }
+
+        .title-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .title-input {
+            padding: 8px;
+            font-size: 14px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 250px;
+            font-weight: bold;
+        }
+
+        .help-btn {
+            background: #e7f3fe;
+            color: #31708f;
+            border: 1px solid #bce8f1;
+            padding: 6px 15px;
+            border-radius: 15px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+        .help-btn:hover { background: #d9edf7; }
+
+        textarea {
+            width: 100%;
+            height: 150px;
+            padding: 10px;
+            font-family: monospace;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            resize: vertical;
+        }
+
+        .action-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            border: 1px solid #eee;
+            margin-top: 15px;
+        }
+
+        button.generate-btn {
+            background-color: #2c3e50;
+            color: white;
+            border: none;
+            padding: 10px 25px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        button.generate-btn:hover { background-color: #34495e; }
+
+        button.secondary-btn {
+            background-color: #fff;
+            color: #555;
+            border: 1px solid #ccc;
+            padding: 8px 15px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        button.secondary-btn:hover { background-color: #f0f0f0; }
+
+        /* --- Canvas & Chart Title --- */
+        .chart-area {
+            text-align: center;
+            margin-top: 20px;
+        }
+        
+        .chart-title-display {
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+            margin-top: 0;
+        }
+
+        .canvas-container {
+            overflow-x: auto;
+            border: 1px solid #eee;
+            padding: 10px;
+            background: #fff;
+            display: inline-block; /* Wraps canvas nicely */
+        }
+        canvas { display: block; }
+
+        /* --- Modal (Popup) Styles --- */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background: white;
+            width: 90%;
+            max-width: 600px;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            position: relative;
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 15px; right: 15px;
+            font-size: 24px;
+            font-weight: bold;
+            color: #aaa;
+            cursor: pointer;
+            line-height: 1;
+        }
+        .modal-close:hover { color: #333; }
+
+        .modal-content h3 { margin-top: 0; color: #2c3e50; }
+        .modal-content h4 { margin: 15px 0 5px; color: #555; font-size: 16px; }
+        .modal-content ul { padding-left: 20px; margin: 5px 0; }
+        .modal-content li { margin-bottom: 5px; color: #444; }
+        
+        .highlight-box {
+            background: #f0f7fb;
+            border-left: 4px solid #3498db;
+            padding: 10px;
+            margin: 15px 0;
+            font-size: 0.95em;
+        }
+
+        .attribution {
+            margin-top: 20px;
+            border-top: 1px solid #eee;
+            padding-top: 10px;
+            font-size: 0.85em;
+            color: #777;
+            text-align: right;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2>Gait Cycle Analyzer</h2>
+        <button class="help-btn" onclick="toggleModal(true)">? Instructions</button>
+    </div>
+    
+    <div class="controls">
+        <div class="data-header">
+            <div class="tab-buttons">
+                <div id="tab0" class="tab-btn active" onclick="switchTab(0)">Data Set 1</div>
+                <div id="tab1" class="tab-btn" onclick="switchTab(1)">Data Set 2</div>
+                <div id="tab2" class="tab-btn" onclick="switchTab(2)">Data Set 3</div>
+            </div>
+        </div>
+
+        <div class="input-wrapper">
+            <div class="title-row">
+                <label for="datasetTitle">Dataset Title:</label>
+                <input type="text" id="datasetTitle" class="title-input" placeholder="e.g., Walking, Running, Patient A" oninput="updateTitle()">
+                <div style="flex-grow:1; text-align:right;">
+                    <button class="secondary-btn" onclick="loadDummyData()">Load Example Data</button>
+                </div>
+            </div>
+
+            <textarea id="dataInput" oninput="saveCurrentData()" placeholder="Paste cells B3-H14 from Assignment 1 here..."></textarea>
+            
+            <div class="action-bar">
+                <button class="generate-btn" onclick="processAndDraw()">Generate Chart</button>
+                <label style="cursor: pointer; user-select: none;">
+                    <input type="checkbox" id="colorSchemeToggle" onchange="processAndDraw()"> 
+                    Use Alternate Color Scheme (Red/Blue)
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <div class="chart-area">
+        <h3 id="chartTitleDisplay" class="chart-title-display">Data Set 1</h3>
+        <div class="canvas-container">
+            <canvas id="gaitCanvas"></canvas>
+        </div>
+    </div>
+    
+    <div style="text-align: right; margin-top: 10px; font-size: 0.8em; color: #888;">
+        Tool created for Professor Fedel
+    </div>
+</div>
+
+<div id="instructionsModal" class="modal-overlay" onclick="toggleModal(false)">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <span class="modal-close" onclick="toggleModal(false)">&times;</span>
+        <h3>How to use this tool</h3>
+        
+        <div class="highlight-box">
+            <strong>Data Source:</strong><br>
+            Please copy the data from your <b>Assignment 1 spreadsheet</b>.<br>
+            Select and copy cells <b>B3 through H14</b>.
+        </div>
+
+        <h4>Comparing Data:</h4>
+        <ul>
+            <li>You have 3 tabs available to load different datasets.</li>
+            <li>Give each dataset a title (e.g., "Walk 1", "Run 2") to keep track.</li>
+            <li>Click between the tabs to visualize the differences. The time scale is fixed (2.5s) to make comparison easy.</li>
+        </ul>
+
+        <h4>How it works:</h4>
+        <ol>
+            <li>Select a tab (Data Set 1, 2, or 3).</li>
+            <li>Paste your data (Ctrl+V) into the text box.</li>
+            <li>Click <b>"Generate Chart"</b>.</li>
+        </ol>
+
+        <div class="attribution">
+            Provided for coursework by Professor Fedel.
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- Data Management ---
+    const DUMMY_DATA = `Leg	Leg		Frame	Frames in	Total	Total Time
+RIGHT	LEFT		Number	Interval	Frames	(s)
+|	IC		180	0	0	0.00
+TO	|		212	32	32	0.13
+IC	|		297	85	117	0.49
+|	TO		333	36	153	0.64
+|	IC		416	83	236	0.98
+TO	|		447	31	267	1.11
+IC	|		536	89	356	1.48
+|	TO		569	33	389	1.62
+|	IC		655	86	475	1.98
+TO	|		689	34	509	2.12`;
+
+    // State for 3 datasets
+    let datasets = [
+        { title: "Data Set 1", data: "" },
+        { title: "Data Set 2", data: "" },
+        { title: "Data Set 3", data: "" }
+    ];
+    
+    let activeIndex = 0;
+
+    window.onload = function() {
+        // Pre-load Dummy data into Set 1 for convenience, others empty
+        datasets[0].data = DUMMY_DATA;
+        datasets[0].title = "Reference Data";
+        
+        // Render initial state
+        updateUI();
+        processAndDraw();
+    };
+
+    function switchTab(index) {
+        activeIndex = index;
+        updateUI();
+        processAndDraw();
+    }
+
+    function updateUI() {
+        // Update inputs to match active dataset
+        document.getElementById('dataInput').value = datasets[activeIndex].data;
+        document.getElementById('datasetTitle').value = datasets[activeIndex].title;
+
+        // Update Tab Styles
+        for(let i=0; i<3; i++) {
+            const tab = document.getElementById(`tab${i}`);
+            if(i === activeIndex) {
+                tab.classList.add('active');
+            } else {
+                tab.classList.remove('active');
+            }
+            // Update Tab Text with user Title (truncate if too long)
+            let displayTitle = datasets[i].title || `Data Set ${i+1}`;
+            if(displayTitle.length > 15) displayTitle = displayTitle.substring(0, 12) + "...";
+            tab.innerText = displayTitle;
+        }
+    }
+
+    function saveCurrentData() {
+        datasets[activeIndex].data = document.getElementById('dataInput').value;
+    }
+
+    function updateTitle() {
+        const newTitle = document.getElementById('datasetTitle').value;
+        datasets[activeIndex].title = newTitle;
+        updateUI(); // Reflect change in tab name immediately
+        
+        // Also update the display above the graph immediately
+        const displayTitle = newTitle || `Data Set ${activeIndex + 1}`;
+        document.getElementById('chartTitleDisplay').innerText = displayTitle;
+    }
+
+    function loadDummyData() {
+        datasets[activeIndex].data = DUMMY_DATA;
+        // Only set title if it's empty or generic
+        if(!datasets[activeIndex].title || datasets[activeIndex].title.includes("Data Set")) {
+            datasets[activeIndex].title = "Example Data";
+        }
+        updateUI();
+        processAndDraw(); // Auto-draw when loading dummy data
+    }
+
+    function toggleModal(show) {
+        document.getElementById('instructionsModal').style.display = show ? 'flex' : 'none';
+    }
+
+    // --- Visualization Logic ---
+    const SCHEMES = {
+        default: {
+            leftStance: '#72c8b9', leftSwing: '#a8e0d7', 
+            rightStance:'#bce1e8', rightSwing:'#dbf3f6',
+            textColorSwing: '#222', textColorStance: '#222'
+        },
+        alternate: {
+            leftStance: '#909dfc', leftSwing: '#9e3b63', 
+            rightStance:'#909dfc', rightSwing:'#9e3b63',
+            textColorSwing: '#fff', textColorStance: '#000'
+        }
+    };
+
+    const LAYOUT = {
+        marginTop: 100, trackHeight: 70, marginBottom: 120,
+        marginLeft: 100, marginRight: 100,
+        canvasWidth: 1000, canvasHeight: 500
+    };
+
+    function processAndDraw() {
+        const rawData = datasets[activeIndex].data;
+        const useAltColors = document.getElementById('colorSchemeToggle').checked;
+        const COLORS = useAltColors ? SCHEMES.alternate : SCHEMES.default;
+        
+        const canvas = document.getElementById('gaitCanvas');
+        canvas.width = LAYOUT.canvasWidth;
+        canvas.height = LAYOUT.canvasHeight;
+        const ctx = canvas.getContext('2d');
+
+        // Update the HTML Title Display instead of Canvas Drawing
+        const currentTitle = datasets[activeIndex].title || `Data Set ${activeIndex + 1}`;
+        document.getElementById('chartTitleDisplay').innerText = currentTitle;
+
+        const events = parseData(rawData);
+        if (events.length === 0) {
+            // If empty, clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if(rawData.trim().length > 0) alert("No valid data found in this set.");
+            return;
+        }
+        
+        // Fixed Scale: 2.5s
+        const FIXED_MAX_TIME = 2.5;
+
+        const segments = calculateSegments(events);
+        const leftCycles = analyzeGaitCycles(events, 'L');
+        const rightCycles = analyzeGaitCycles(events, 'R');
+
+        drawChart(ctx, events, segments, leftCycles, rightCycles, FIXED_MAX_TIME, COLORS);
+    }
+
+    function parseData(text) {
+        const lines = text.trim().split('\n');
+        const events = [];
+        lines.forEach(line => {
+            const parts = line.trim().split(/\s+/);
+            if (parts.length < 5) return;
+            const time = parseFloat(parts[parts.length - 1]);
+            if (isNaN(time)) return;
+
+            const rEvt = parts[0];
+            const lEvt = parts[1];
+            if (rEvt !== '|') events.push({ time: time, side: 'R', type: rEvt });
+            if (lEvt !== '|') events.push({ time: time, side: 'L', type: lEvt });
+        });
+        return events.sort((a, b) => a.time - b.time);
+    }
+
+    function calculateSegments(events) {
+        let leftStance = getInitialState(events, 'L');
+        let rightStance = getInitialState(events, 'R');
+        const segments = [];
+
+        for (let i = 0; i < events.length - 1; i++) {
+            const currentEvent = events[i];
+            const nextEvent = events[i+1];
+
+            if (currentEvent.side === 'L') leftStance = (currentEvent.type === 'IC'); 
+            else if (currentEvent.side === 'R') rightStance = (currentEvent.type === 'IC');
+
+            segments.push({
+                start: currentEvent.time,
+                end: nextEvent.time,
+                leftIsStance: leftStance,
+                rightIsStance: rightStance
+            });
+        }
+        return segments;
+    }
+
+    function analyzeGaitCycles(events, side) {
+        const sideEvents = events.filter(e => e.side === side);
+        const phases = [];
+        
+        for(let i=0; i<sideEvents.length-1; i++) {
+            const curr = sideEvents[i];
+            const next = sideEvents[i+1];
+            
+            let phaseType = null;
+            if (curr.type === 'IC' && next.type === 'TO') phaseType = 'Stance';
+            else if (curr.type === 'TO' && next.type === 'IC') phaseType = 'Swing';
+            
+            if(phaseType) {
+                phases.push({
+                    type: phaseType,
+                    start: curr.time,
+                    end: next.time,
+                    duration: next.time - curr.time
+                });
+            }
+        }
+        
+        const fullCycles = [];
+        for(let i=0; i<sideEvents.length; i++) {
+            if(sideEvents[i].type === 'IC') {
+                const nextIC = sideEvents.find((e, idx) => idx > i && e.type === 'IC');
+                if(nextIC) {
+                    fullCycles.push({
+                        start: sideEvents[i].time,
+                        end: nextIC.time,
+                        duration: nextIC.time - sideEvents[i].time
+                    });
+                }
+            }
+        }
+        return { phases, fullCycles };
+    }
+
+    function getInitialState(events, side) {
+        const firstEvent = events.find(e => e.side === side);
+        return firstEvent ? firstEvent.type === 'TO' : false;
+    }
+
+    function drawChart(ctx, events, segments, leftData, rightData, maxTimeScale, COLORS) {
+        // Clear entire canvas to avoid overlapping headers
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        
+        const drawingWidth = ctx.canvas.width - LAYOUT.marginLeft - LAYOUT.marginRight;
+        const timeScale = drawingWidth / maxTimeScale;
+        
+        const yLeft = LAYOUT.marginTop;
+        const ySupport = yLeft + LAYOUT.trackHeight;
+        const yRight = ySupport + LAYOUT.trackHeight;
+
+        ctx.textAlign = "right";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "black";
+        ctx.font = "bold 14px Arial";
+        ctx.fillText("Left Leg", LAYOUT.marginLeft - 20, yLeft + LAYOUT.trackHeight/2);
+        ctx.fillText("Right Leg", LAYOUT.marginLeft - 20, yRight + LAYOUT.trackHeight/2);
+        ctx.font = "14px Arial";
+
+        segments.forEach(seg => {
+            const x = LAYOUT.marginLeft + (seg.start * timeScale);
+            const w = (seg.end - seg.start) * timeScale;
+            const drawW = w + 1; 
+
+            ctx.fillStyle = seg.leftIsStance ? COLORS.leftStance : COLORS.leftSwingColor || COLORS.leftSwing;
+            ctx.fillRect(x, yLeft, drawW, LAYOUT.trackHeight);
+
+            ctx.fillStyle = seg.rightIsStance ? COLORS.rightStance : COLORS.rightSwingColor || COLORS.rightSwing;
+            ctx.fillRect(x, yRight, drawW, LAYOUT.trackHeight);
+
+            ctx.fillStyle = "white";
+            ctx.fillRect(x, ySupport, drawW, LAYOUT.trackHeight);
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = "#333";
+            ctx.strokeRect(x, ySupport, drawW, LAYOUT.trackHeight); 
+
+            let supportText = "";
+            if (seg.leftIsStance && seg.rightIsStance) supportText = "Double support";
+            else if (seg.leftIsStance) supportText = "Left single support";
+            else if (seg.rightIsStance) supportText = "Right single support";
+
+            ctx.fillStyle = "black";
+            ctx.textAlign = "center";
+            if (w > 40) wrapText(ctx, supportText, x + w/2, ySupport + LAYOUT.trackHeight/2, w);
+        });
+
+        const drawPhaseStats = (phases, yPos, cycles, sideLabel) => {
+            phases.forEach(p => {
+                const x = LAYOUT.marginLeft + (p.start * timeScale);
+                const w = (p.end - p.start) * timeScale;
+                const midX = x + w/2;
+
+                const parentCycle = cycles.find(c => p.start >= c.start && p.end <= c.end + 0.01);
+                let refDuration = parentCycle ? parentCycle.duration : (cycles.length > 0 ? cycles[0].duration : 0);
+
+                let text = `${sideLabel} ${p.type} Phase`;
+                let subText = p.duration.toFixed(2) + "s";
+                
+                if (refDuration > 0) {
+                    const pct = Math.round((p.duration / refDuration) * 100);
+                    subText += ` (${pct}%)`;
+                }
+
+                ctx.fillStyle = (p.type === 'Swing') ? COLORS.textColorSwing : COLORS.textColorStance;
+                ctx.textAlign = "center";
+                
+                if (w > 80) {
+                    ctx.font = "bold 13px Arial";
+                    ctx.fillText(text, midX, yPos + LAYOUT.trackHeight/2 - 8);
+                    ctx.font = "12px Arial";
+                    ctx.fillText(subText, midX, yPos + LAYOUT.trackHeight/2 + 8);
+                }
+            });
+        };
+
+        drawPhaseStats(leftData.phases, yLeft, leftData.fullCycles, "Left");
+        drawPhaseStats(rightData.phases, yRight, rightData.fullCycles, "Right");
+
+        ctx.strokeStyle = "#333";
+        ctx.lineWidth = 1;
+
+        [yLeft, ySupport, yRight, yRight + LAYOUT.trackHeight].forEach(y => {
+             ctx.beginPath(); 
+             ctx.moveTo(LAYOUT.marginLeft, y); 
+             ctx.lineTo(LAYOUT.marginLeft + drawingWidth, y); 
+             ctx.stroke();
+        });
+
+        events.forEach(evt => {
+            const x = LAYOUT.marginLeft + (evt.time * timeScale);
+            ctx.beginPath();
+            
+            if (evt.side === 'L') {
+                ctx.moveTo(x, yLeft - 15);
+                ctx.lineTo(x, yRight); 
+            } else {
+                ctx.moveTo(x, yRight + LAYOUT.trackHeight + 15);
+                ctx.lineTo(x, ySupport); 
+            }
+            ctx.stroke();
+
+            ctx.fillStyle = "black";
+            ctx.textAlign = "center";
+            ctx.font = "12px Arial";
+            
+            const labelText = (evt.side === 'L' ? "Left " : "Right ") + (evt.type === 'IC' ? "initial contact" : "toe off");
+            const parts = labelText.split(" ");
+            
+            if (evt.side === 'L') {
+                ctx.fillText(parts[0], x, yLeft - 30);
+                ctx.fillText(parts[1] + " " + parts[2], x, yLeft - 18);
+            } else {
+                ctx.fillText(parts[0], x, yRight + LAYOUT.trackHeight + 18);
+                ctx.fillText(parts[1] + " " + parts[2], x, yRight + LAYOUT.trackHeight + 30);
+                ctx.font = "bold 12px Arial";
+                ctx.fillText(evt.time.toFixed(2) + "s", x, yRight + LAYOUT.trackHeight + 50);
+            }
+        });
+
+        const drawDimension = (start, end, y, text, location) => {
+            const x1 = LAYOUT.marginLeft + (start * timeScale);
+            const x2 = LAYOUT.marginLeft + (end * timeScale);
+            const mid = (x1 + x2) / 2;
+            
+            ctx.beginPath();
+            ctx.strokeStyle = "#000";
+            if(location === 'top') {
+                ctx.moveTo(x1, y); ctx.lineTo(x1, y-10);
+                ctx.moveTo(x2, y); ctx.lineTo(x2, y-10);
+                ctx.moveTo(x1, y-10); ctx.lineTo(x2, y-10);
+                ctx.fillStyle = "black";
+                ctx.fillText(text, mid, y - 18);
+            } else {
+                ctx.moveTo(x1, y); ctx.lineTo(x1, y+10);
+                ctx.moveTo(x2, y); ctx.lineTo(x2, y+10);
+                ctx.moveTo(x1, y+10); ctx.lineTo(x2, y+10);
+                ctx.fillStyle = "black";
+                ctx.fillText(text, mid, y + 22);
+            }
+            ctx.stroke();
+        };
+
+        leftData.fullCycles.forEach(c => {
+            drawDimension(c.start, c.end, yLeft - 45, `Gait Cycle: ${c.duration.toFixed(2)}s`, 'top');
+        });
+        rightData.fullCycles.forEach(c => {
+            drawDimension(c.start, c.end, yRight + LAYOUT.trackHeight + 60, `Gait Cycle: ${c.duration.toFixed(2)}s`, 'bottom');
+        });
+
+        drawTimeArrow(ctx, LAYOUT.marginLeft + drawingWidth - 80, yLeft - 75);
+    }
+
+    function wrapText(ctx, text, x, y, maxWidth) {
+        const words = text.split(' ');
+        if (maxWidth < 40) return; 
+        if (text.includes("Double")) {
+            ctx.fillText("Double", x, y - 8);
+            ctx.fillText("support", x, y + 8);
+        } else {
+            ctx.fillText(text, x, y, maxWidth);
+        }
+    }
+
+    function drawTimeArrow(ctx, x, y) {
+        ctx.strokeStyle = "black";
+        ctx.fillStyle = "black";
+        ctx.beginPath();
+        ctx.moveTo(x, y); ctx.lineTo(x + 80, y); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x + 80, y); ctx.lineTo(x + 70, y - 4); ctx.lineTo(x + 70, y + 4); ctx.fill();
+        ctx.font = "italic 12px Arial";
+        ctx.fillText("Time", x + 40, y - 10);
+    }
+</script>
+
+</body>
+</html>
