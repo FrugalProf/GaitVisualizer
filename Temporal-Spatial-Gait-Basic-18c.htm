@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gait Analysis Tool - Prof. Fedel</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8fafc; }
+        .card { background: white; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); padding: 16px; margin-bottom: 20px; border: 1px solid #e2e8f0; height: 100%; display: flex; flex-direction: column; }
+        
+        /* Tab Styles */
+        .tab-btn { padding: 10px 20px; border-radius: 8px 8px 0 0; font-weight: 600; font-size: 0.9rem; transition: all 0.2s; border: 1px solid transparent; border-bottom: none; }
+        .tab-active { background-color: white; border-color: #e2e8f0; color: #1e3a8a; border-bottom: 2px solid white; margin-bottom: -1px; z-index: 10; }
+        .tab-inactive { background-color: #f1f5f9; color: #64748b; border-color: transparent; }
+        .tab-inactive:hover { background-color: #e2e8f0; }
+
+        /* Modal Styles */
+        .modal { display: none; position: fixed; z-index: 50; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.5); }
+        .modal-content { background-color: #fefefe; margin: 5% auto; padding: 25px; border: 1px solid #888; width: 700px; max-width: 95%; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
+        
+        .sig-diff { background-color: #dcfce7 !important; border-left: 4px solid #22c55e; } 
+        th, td { text-align: left; vertical-align: middle; }
+        .no-data { display: flex; align-items: center; justify-content: center; height: 100%; color: #94a3b8; font-style: italic; background: #f1f5f9; border-radius: 4px; }
+    </style>
+</head>
+<body class="p-4 text-slate-800 bg-slate-50">
+
+    <div class="w-[98%] xl:w-[95%] mx-auto">
+        
+        <header class="flex justify-between items-center mb-6 border-b pb-4">
+            <div>
+                <h1 class="text-3xl font-bold text-slate-900">Gait Analysis Dashboard</h1>
+                <p class="text-slate-500 mt-1">Created by Professor Fedel</p>
+            </div>
+            <button onclick="toggleModal()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded shadow flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" /></svg>
+                Tool Instructions
+            </button>
+        </header>
+
+        <div class="flex pl-1">
+            <button id="tab-set1" onclick="switchTab('set1')" class="tab-btn tab-active">Data Set 1</button>
+            <button id="tab-set2" onclick="switchTab('set2')" class="tab-btn tab-inactive">Data Set 2</button>
+        </div>
+
+        <div class="bg-white rounded-lg rounded-tl-none shadow p-4 mb-6 border border-slate-200 relative z-0">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-3 gap-3">
+                <div class="w-full md:w-1/3">
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Dataset Label</label>
+                    <input type="text" id="datasetLabel" class="w-full p-2 border border-slate-300 rounded text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="e.g. Pre-Op Condition">
+                </div>
+                <div class="flex-grow"></div>
+                <div class="space-x-4">
+                     <button onclick="loadDemoData()" class="text-blue-600 hover:text-blue-800 text-sm font-medium underline decoration-dotted">Load Demo Data</button>
+                </div>
+            </div>
+            
+            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Raw Data (Paste from Excel)</label>
+            <textarea id="rawData" class="w-full h-24 p-3 border border-slate-300 rounded-lg font-mono text-xs focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Paste range A3:H31 (Include 'Leg' columns and 'Total Time')..."></textarea>
+            
+            <div class="mt-3 flex justify-between items-center">
+                <button onclick="processData()" class="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 px-6 rounded-lg transition shadow-lg w-full sm:w-auto text-sm">
+                    Analyze Active Dataset
+                </button>
+                <span id="activeSetIndicator" class="text-xs text-slate-400 font-mono">Editing: Data Set 1</span>
+            </div>
+        </div>
+
+        <div class="hidden" id="resultsArea">
+            
+            <div class="mb-4 pb-2 border-b border-slate-200">
+                <h2 id="displayLabel" class="text-xl font-bold text-blue-800"></h2>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+                
+                <div class="flex flex-col h-full">
+                    <div class="card mb-0">
+                        <div class="mb-2 border-b pb-1">
+                            <h3 class="text-sm font-bold text-slate-800">Spatial Means (cm)</h3>
+                            <p class="text-[10px] text-slate-500">Error Bars = 95% CI</p>
+                        </div>
+                        <div class="h-64 relative w-full mb-2" id="containerSpatialBar">
+                            <canvas id="spatialBarChart"></canvas>
+                        </div>
+                        <div class="overflow-x-auto mt-auto">
+                            <table class="w-full text-[10px] text-left">
+                                <thead class="bg-slate-100 text-slate-600">
+                                    <tr>
+                                        <th class="px-1 py-1">Metric</th>
+                                        <th class="px-1 py-1">Mean</th>
+                                        <th class="px-1 py-1">SD</th>
+                                        <th class="px-1 py-1 text-blue-600">CoV</th>
+                                        <th class="px-1 py-1 text-gray-500">95% CI</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="spatialStatsBody" class="divide-y"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex flex-col h-full">
+                    <div class="card mb-0">
+                        <div class="mb-2 border-b pb-1">
+                            <h3 class="text-sm font-bold text-slate-800">Spatial Pattern (Cycle-by-Cycle)</h3>
+                            <p class="text-[10px] text-slate-500">Error Bars on Dots = 95% CI</p>
+                        </div>
+                        <div class="h-64 relative w-full mb-2" id="containerSpatialCombined">
+                            <canvas id="spatialCombinedChart"></canvas>
+                        </div>
+                        <div class="overflow-x-auto mt-auto max-h-40 overflow-y-auto">
+                            <table class="w-full text-[10px] text-left">
+                                <thead class="bg-slate-100 text-slate-600 sticky top-0">
+                                    <tr>
+                                        <th class="px-1 py-1">Cycle</th>
+                                        <th class="px-1 py-1 border-l border-slate-200">L Step</th>
+                                        <th class="px-1 py-1">R Step</th>
+                                        <th class="px-1 py-1">Stride</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="rawTableBody" class="divide-y"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex flex-col h-full">
+                    <div class="card mb-0">
+                        <div class="mb-2 border-b pb-1">
+                            <h3 class="text-sm font-bold text-slate-800">Stance & Swing Consistency (s)</h3>
+                            <p class="text-[10px] text-slate-500">Interleaved: Check for L/R Zig-Zags</p>
+                        </div>
+                        <div class="h-64 relative w-full mb-2" id="containerTemporal">
+                            <canvas id="temporalChart"></canvas>
+                        </div>
+                        <div class="overflow-x-auto mt-2">
+                            <table class="w-full text-[10px] text-left mb-2">
+                                <thead class="bg-slate-100 text-slate-600">
+                                    <tr>
+                                        <th class="px-1 py-1">Metric</th>
+                                        <th class="px-1 py-1">Mean</th>
+                                        <th class="px-1 py-1">SD</th>
+                                        <th class="px-1 py-1 text-blue-600">CoV</th>
+                                        <th class="px-1 py-1 text-gray-500">95% CI</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="temporalStatsBody" class="divide-y"></tbody>
+                            </table>
+                        </div>
+                        <div class="overflow-x-auto mt-auto max-h-40 overflow-y-auto">
+                            <table class="w-full text-[10px] text-left">
+                                <thead class="bg-slate-100 text-slate-600 sticky top-0">
+                                    <tr>
+                                        <th class="px-1 py-1">Leg</th>
+                                        <th class="px-1 py-1">Stance(s)</th>
+                                        <th class="px-1 py-1">Swing(s)</th>
+                                        <th class="px-1 py-1 text-amber-600">%Stance</th>
+                                        <th class="px-1 py-1 text-blue-600">%Swing</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="phaseTableBody" class="divide-y"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="logicOutput" class="hidden mb-6">
+                <div id="logicAlerts" class="space-y-2"></div>
+            </div>
+
+            <footer class="mt-8 text-center text-[10px] text-slate-400 border-t pt-2">
+                Analysis Tool Created by Professor Fedel
+            </footer>
+        </div>
+    </div>
+
+    <div id="infoModal" class="modal">
+        <div class="modal-content">
+            <div class="flex justify-between items-center mb-4 border-b pb-2">
+                <h2 class="text-xl font-bold text-slate-800">Gait Analysis Tool Instructions</h2>
+                <span onclick="toggleModal()" class="text-2xl cursor-pointer text-slate-500 hover:text-slate-800">&times;</span>
+            </div>
+            <div class="text-sm text-slate-600 space-y-4 max-h-[70vh] overflow-y-auto pr-2">
+                <div class="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                    <h3 class="font-bold text-blue-800 mb-2">1. Data Preparation</h3>
+                    <p class="mb-2">This tool works with the <strong>Temporal Spatial Spreadsheet</strong>.</p>
+                    <ul class="list-disc pl-5 space-y-1 text-blue-700">
+                        <li>Ensure your Excel sheet has columns for <strong>Leg</strong>, <strong>Events (IC/TO)</strong>, and <strong>Total Time</strong>.</li>
+                        <li>Highlight range <strong>A3 to H31</strong> (include leg columns and time).</li>
+                        <li>Copy the selection (Ctrl+C).</li>
+                    </ul>
+                </div>
+                <div class="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                    <h3 class="font-bold text-slate-800 mb-2">2. Using Tabs</h3>
+                    <ol class="list-decimal pl-5 space-y-1">
+                        <li>Click "Data Set 1" or "Data Set 2".</li>
+                        <li>Enter a label (e.g. "Pre-Op").</li>
+                        <li>Paste data and click "Analyze".</li>
+                    </ol>
+                </div>
+                <div>
+                    <h3 class="font-bold text-slate-800 mb-2">3. Outputs</h3>
+                    <ul class="list-disc pl-5 space-y-2">
+                        <li><strong>Spatial Means:</strong> Average Step/Stride.</li>
+                        <li><strong>Spatial Pattern:</strong> Cycle-by-cycle variability (dots have 95% CI bars).</li>
+                        <li><strong>Stance & Swing Consistency:</strong> Plots the duration of the major gait phases for every step sequentially (interleaved Left/Right).
+                            <ul class="list-circle pl-5 mt-1 text-xs text-slate-500">
+                                <li><strong>Stance Phase (Orange):</strong> Time from Heel Strike to Toe Off (Same Leg). ~60% of cycle.</li>
+                                <li><strong>Swing Phase (Blue):</strong> Time from Toe Off to Heel Strike (Same Leg). ~40% of cycle.</li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div>
+                <p class="mt-4 pt-4 border-t border-slate-200 text-xs text-slate-400 font-semibold text-center">Tool Created by Professor Fedel</p>
+            </div>
+        </div>
+    </div>
+
+<script>
+    // --- APP STATE MANAGEMENT ---
+    let appData = {
+        set1: { raw: "", label: "" },
+        set2: { raw: "", label: "" }
+    };
+    let currentTab = 'set1';
+
+    function switchTab(tabId) {
+        appData[currentTab].raw = document.getElementById('rawData').value;
+        appData[currentTab].label = document.getElementById('datasetLabel').value;
+        currentTab = tabId;
+        document.getElementById('rawData').value = appData[currentTab].raw;
+        document.getElementById('datasetLabel').value = appData[currentTab].label;
+
+        const btn1 = document.getElementById('tab-set1');
+        const btn2 = document.getElementById('tab-set2');
+        const indicator = document.getElementById('activeSetIndicator');
+
+        if(tabId === 'set1') {
+            btn1.classList.add('tab-active'); btn1.classList.remove('tab-inactive');
+            btn2.classList.add('tab-inactive'); btn2.classList.remove('tab-active');
+            indicator.textContent = "Editing: Data Set 1";
+        } else {
+            btn2.classList.add('tab-active'); btn2.classList.remove('tab-inactive');
+            btn1.classList.add('tab-inactive'); btn1.classList.remove('tab-active');
+            indicator.textContent = "Editing: Data Set 2";
+        }
+
+        if(appData[currentTab].raw.trim().length > 0) {
+            processData();
+        } else {
+            document.getElementById('resultsArea').classList.add('hidden');
+        }
+    }
+
+    const T_DIST = { 1: 12.71, 2: 4.30, 3: 3.18, 4: 2.78, 5: 2.57, 6: 2.45, 10: 2.23, 100: 1.98 };
+
+    function toggleModal() {
+        const modal = document.getElementById("infoModal");
+        modal.style.display = (modal.style.display === "block") ? "none" : "block";
+    }
+    window.onclick = function(event) { if (event.target == document.getElementById("infoModal")) toggleModal(); }
+
+    function calculateStats(data) {
+        if (!data || data.length === 0) return { mean: 0, sd: 0, cov: 0, ciMargin: 0, ciLow: 0, ciHigh: 0 };
+        const n = data.length;
+        const mean = data.reduce((a, b) => a + b, 0) / n;
+        const variance = data.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (n > 1 ? n - 1 : 1);
+        const sd = Math.sqrt(variance);
+        const cov = mean !== 0 ? (sd / mean) * 100 : 0;
+        
+        let df = n - 1; 
+        let tVal = 1.96;
+        const keys = Object.keys(T_DIST).map(Number).sort((a,b)=>a-b);
+        if(df < 100) {
+            const closest = keys.reduce((prev, curr) => Math.abs(curr - df) < Math.abs(prev - df) ? curr : prev);
+            tVal = T_DIST[closest];
+        }
+        const ciMargin = tVal * (sd / Math.sqrt(n));
+        return { mean, sd, cov, ciMargin, ciLow: mean - ciMargin, ciHigh: mean + ciMargin };
+    }
+
+    function getScaleLimits(values, paddingPct = 0.15) {
+        if (!values || values.length === 0) return { min: 0, max: 10 };
+        let dataMin = Math.min(...values);
+        let dataMax = Math.max(...values);
+        let range = dataMax - dataMin;
+        if (range === 0) range = dataMax * 0.1 || 1; 
+        const padding = range * paddingPct;
+        return { min: Math.max(0, dataMin - padding), max: dataMax + padding };
+    }
+
+    let chartSpatialBar = null;
+    let chartSpatialCombined = null;
+    let temporalChartInstance = null;
+
+    function processData() {
+        appData[currentTab].raw = document.getElementById('rawData').value;
+        appData[currentTab].label = document.getElementById('datasetLabel').value;
+
+        const raw = appData[currentTab].raw;
+        const label = appData[currentTab].label || (currentTab === 'set1' ? "Data Set 1" : "Data Set 2");
+        document.getElementById('displayLabel').textContent = "Analysis: " + label;
+
+        const lines = raw.split('\n');
+        
+        let spatial = { leftStep: [], rightStep: [], stride: [] };
+        let events = [];
+
+        let section = 'unknown';
+        lines.forEach(line => {
+            const row = line.trim().split(/\t+/);
+            if (row.length < 2) return;
+            
+            if (line.includes("Spatial Data")) { section = 'spatial'; return; }
+            if (row[0].includes("Leg") || row[1].includes("Leg") || row[2] == "Frame") { section = 'temporal'; return; }
+
+            if (section === 'spatial' || line.includes("Step Length") || line.includes("Stride Length")) {
+                const values = row.filter(item => !isNaN(parseFloat(item)) && isFinite(item)).map(Number);
+                const lineLower = line.toLowerCase();
+                if (lineLower.includes("left step length")) spatial.leftStep = values;
+                if (lineLower.includes("right step length")) spatial.rightStep = values;
+                if (lineLower.includes("stride length")) spatial.stride = values;
+            }
+
+            if (section === 'temporal' || (!section && (row[0] === 'IC' || row[0] === 'TO' || row[0] === 'I' || row[1] === 'IC'))) {
+                const rightEvt = row[0] ? row[0].trim() : "";
+                const leftEvt = row[1] ? row[1].trim() : "";
+                const numerics = row.filter(x => !isNaN(parseFloat(x)) && isFinite(x));
+                if (numerics.length > 0) {
+                    const time = parseFloat(numerics[numerics.length - 1]); 
+                    if (rightEvt === 'IC' || rightEvt === 'TO') events.push({ leg: 'R', event: rightEvt, time: time });
+                    if (leftEvt === 'IC' || leftEvt === 'TO') events.push({ leg: 'L', event: leftEvt, time: time });
+                }
+            }
+        });
+
+        // 1. ANALYZE DATA
+        // Calculate Stance and Swing for each leg independently
+        let leftPhases = analyzeLegPhases(events.filter(e => e.leg === 'L'));
+        let rightPhases = analyzeLegPhases(events.filter(e => e.leg === 'R'));
+        let allPhases = { L: leftPhases, R: rightPhases };
+
+        // For Graph 3: Flatten into a single interleaved timeline of Stance/Swing
+        // We collect all Stance times and all Swing times
+        let allStances = [...leftPhases.map(p=>p.stance), ...rightPhases.map(p=>p.stance)].filter(x=>x);
+        let allSwings = [...leftPhases.map(p=>p.swing), ...rightPhases.map(p=>p.swing)].filter(x=>x);
+
+        const stats = {
+            sLeft: calculateStats(spatial.leftStep),
+            sRight: calculateStats(spatial.rightStep),
+            sStride: calculateStats(spatial.stride),
+            tStance: calculateStats(allStances),
+            tSwing: calculateStats(allSwings)
+        };
+
+        const hasSpatial = spatial.leftStep.length > 0 || spatial.rightStep.length > 0;
+        const hasTemporal = events.length > 0;
+
+        if (hasSpatial) {
+            document.getElementById('containerSpatialBar').innerHTML = '<canvas id="spatialBarChart"></canvas>';
+            document.getElementById('containerSpatialCombined').innerHTML = '<canvas id="spatialCombinedChart"></canvas>';
+            renderSpatialBarChart(stats);
+            renderSpatialCombinedChart(spatial, stats);
+            renderTables(stats, true); 
+            renderRawTable(spatial);
+            renderLogic(spatial);
+        } else {
+            document.getElementById('containerSpatialBar').innerHTML = '<div class="no-data">⚠️ No Spatial Data Found</div>';
+            document.getElementById('containerSpatialCombined').innerHTML = '<div class="no-data">⚠️ No Spatial Data Found</div>';
+            document.getElementById('spatialStatsBody').innerHTML = '<tr><td colspan="5" class="p-2 text-center text-slate-400">No Data</td></tr>';
+            document.getElementById('rawTableBody').innerHTML = '<tr><td colspan="4" class="p-2 text-center text-slate-400">No Data</td></tr>';
+        }
+
+        if (hasTemporal) {
+            document.getElementById('containerTemporal').innerHTML = '<canvas id="temporalChart"></canvas>';
+            // Pass the flattened arrays for the graph
+            renderTemporalChart(allStances, allSwings);
+            renderTables(stats, false); 
+            renderPhaseTable(allPhases);
+        } else {
+            document.getElementById('containerTemporal').innerHTML = '<div class="no-data">⚠️ No Temporal Data Found</div>';
+            document.getElementById('temporalStatsBody').innerHTML = '<tr><td colspan="5" class="p-2 text-center text-slate-400">No Data</td></tr>';
+            document.getElementById('phaseTableBody').innerHTML = '<tr><td colspan="5" class="p-2 text-center text-slate-400">No Data</td></tr>';
+        }
+
+        document.getElementById('resultsArea').classList.remove('hidden');
+        document.getElementById('logicOutput').classList.remove('hidden');
+    }
+
+    function analyzeLegPhases(legEvents) {
+        legEvents.sort((a, b) => a.time - b.time);
+        let phases = [];
+        for (let i = 0; i < legEvents.length - 1; i++) {
+            const curr = legEvents[i];
+            const next = legEvents[i+1];
+            // Strict Ipsilateral Logic: Stance = Same Leg IC -> Same Leg TO
+            if (curr.event === 'IC' && next.event === 'TO') {
+                const stanceTime = next.time - curr.time;
+                let swingTime = 0;
+                // Strict Ipsilateral Logic: Swing = Same Leg TO -> Same Leg IC
+                if (i + 2 < legEvents.length && legEvents[i+2].event === 'IC') {
+                    swingTime = legEvents[i+2].time - next.time;
+                }
+                if (stanceTime > 0) {
+                    phases.push({ stance: stanceTime, swing: swingTime > 0 ? swingTime : null, cycle: (swingTime > 0) ? stanceTime + swingTime : null });
+                }
+            }
+        }
+        return phases;
+    }
+
+    // --- CHART 1: SPATIAL BAR ---
+    function renderSpatialBarChart(stats) {
+        const errorBarPlugin = {
+            id: 'errorBar',
+            afterDatasetsDraw: (chart) => {
+                const { ctx, scales } = chart;
+                chart.data.datasets.forEach((dataset, i) => {
+                    if(!dataset.errorBars) return;
+                    const meta = chart.getDatasetMeta(i);
+                    const yScaleID = meta.yAxisID;
+                    const yAxis = scales[yScaleID];
+                    meta.data.forEach((bar, index) => {
+                        const value = dataset.data[index];
+                        const margin = dataset.errorBars[index];
+                        if(!margin && margin !== 0) return; 
+                        const xPos = bar.x;
+                        const yHigh = yAxis.getPixelForValue(value + margin);
+                        const yLow = yAxis.getPixelForValue(value - margin);
+                        ctx.save();
+                        ctx.strokeStyle = '#334155'; ctx.lineWidth = 2;
+                        ctx.beginPath(); ctx.moveTo(xPos, yLow); ctx.lineTo(xPos, yHigh); ctx.stroke();
+                        ctx.beginPath(); ctx.moveTo(xPos-6, yLow); ctx.lineTo(xPos+6, yLow); ctx.stroke();
+                        ctx.beginPath(); ctx.moveTo(xPos-6, yHigh); ctx.lineTo(xPos+6, yHigh); ctx.stroke();
+                        ctx.restore();
+                    });
+                });
+            }
+        };
+
+        if (chartSpatialBar) chartSpatialBar.destroy();
+        
+        const leftData = [stats.sLeft.mean, stats.sRight.mean];
+        const leftMargins = [stats.sLeft.ciMargin, stats.sRight.ciMargin];
+        const strideData = [stats.sStride.mean];
+        const strideMargins = [stats.sStride.ciMargin];
+
+        const leftLims = getScaleLimits([...leftData.map((v,i)=>v+leftMargins[i]), ...leftData.map((v,i)=>v-leftMargins[i])]);
+        const rightLims = getScaleLimits([...strideData.map((v,i)=>v+strideMargins[i]), ...strideData.map((v,i)=>v-strideMargins[i])]);
+
+        chartSpatialBar = new Chart(document.getElementById('spatialBarChart'), {
+            type: 'bar',
+            data: {
+                labels: ['Left Step', 'Right Step', 'Stride'],
+                datasets: [
+                    {
+                        label: 'Step',
+                        data: [stats.sLeft.mean, stats.sRight.mean, null],
+                        backgroundColor: '#10b981', borderWidth: 1,
+                        errorBars: [stats.sLeft.ciMargin, stats.sRight.ciMargin, null],
+                        yAxisID: 'y', order: 2
+                    },
+                    {
+                        label: 'Stride',
+                        data: [null, null, stats.sStride.mean],
+                        backgroundColor: '#3b82f6', borderWidth: 1,
+                        errorBars: [null, null, stats.sStride.ciMargin],
+                        yAxisID: 'y1', order: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { type: 'linear', display: true, position: 'left', min: leftLims.min, max: leftLims.max, title: {display:false}, ticks: {font:{size:9}} },
+                    y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false }, min: rightLims.min, max: rightLims.max, ticks: {font:{size:9}} }
+                },
+                plugins: { legend: { display: false } }
+            },
+            plugins: [errorBarPlugin]
+        });
+    }
+
+    // --- CHART 2: SPATIAL COMBINED ---
+    function renderSpatialCombinedChart(spatial, stats) {
+        if (chartSpatialCombined) chartSpatialCombined.destroy();
+        
+        const pointErrorBarPlugin = {
+            id: 'pointErrorBar',
+            afterDatasetsDraw: (chart) => {
+                const { ctx, scales } = chart;
+                chart.data.datasets.forEach((dataset, i) => {
+                    if(!dataset.errorBars) return;
+                    const meta = chart.getDatasetMeta(i);
+                    const yScaleID = meta.yAxisID;
+                    const yAxis = scales[yScaleID];
+                    meta.data.forEach((point, index) => {
+                        const value = dataset.data[index];
+                        const margin = dataset.errorBars[index];
+                        if(!margin) return; 
+                        const xPos = point.x;
+                        const yHigh = yAxis.getPixelForValue(value + margin);
+                        const yLow = yAxis.getPixelForValue(value - margin);
+                        ctx.save();
+                        ctx.strokeStyle = dataset.borderColor; 
+                        ctx.lineWidth = 1.5;
+                        ctx.beginPath(); ctx.moveTo(xPos, yLow); ctx.lineTo(xPos, yHigh); ctx.stroke();
+                        ctx.beginPath(); ctx.moveTo(xPos-4, yLow); ctx.lineTo(xPos+4, yLow); ctx.stroke();
+                        ctx.beginPath(); ctx.moveTo(xPos-4, yHigh); ctx.lineTo(xPos+4, yHigh); ctx.stroke();
+                        ctx.restore();
+                    });
+                });
+            }
+        };
+
+        const maxLen = Math.max(spatial.leftStep.length, spatial.rightStep.length, spatial.stride.length);
+        const labels = Array.from({length: maxLen}, (_, i) => `${i+1}`);
+
+        // Margins for CI bars
+        const leftMargins = Array(spatial.leftStep.length).fill(stats.sLeft.ciMargin);
+        const rightMargins = Array(spatial.rightStep.length).fill(stats.sRight.ciMargin);
+        const strideMargins = Array(spatial.stride.length).fill(stats.sStride.ciMargin);
+
+        // Auto Scaling
+        const stepValues = [...spatial.leftStep, ...spatial.rightStep];
+        const stepRanges = [...stepValues.map(v=>v+stats.sLeft.ciMargin), ...stepValues.map(v=>v-stats.sLeft.ciMargin)];
+        const leftLims = getScaleLimits(stepRanges);
+
+        const strideRanges = [...spatial.stride.map(v=>v+stats.sStride.ciMargin), ...spatial.stride.map(v=>v-stats.sStride.ciMargin)];
+        const rightLims = getScaleLimits(strideRanges);
+
+        chartSpatialCombined = new Chart(document.getElementById('spatialCombinedChart'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    { label: 'L Step', data: spatial.leftStep, borderColor: '#10b981', backgroundColor:'#10b981', tension: 0.1, yAxisID: 'y', pointRadius: 4, errorBars: leftMargins },
+                    { label: 'R Step', data: spatial.rightStep, borderColor: '#f59e0b', backgroundColor:'#f59e0b', tension: 0.1, yAxisID: 'y', pointRadius: 4, errorBars: rightMargins },
+                    { label: 'Stride', data: spatial.stride, borderColor: '#3b82f6', backgroundColor:'#3b82f6', borderDash: [2, 2], tension: 0.1, yAxisID: 'y1', pointRadius: 4, errorBars: strideMargins }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { type: 'linear', display: true, position: 'left', min: leftLims.min, max: leftLims.max, ticks: {font:{size:9}} },
+                    y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false }, min: rightLims.min, max: rightLims.max, ticks: {font:{size:9}} }
+                },
+                plugins: { legend: { display: true, labels: {boxWidth: 8, font:{size:9}, usePointStyle:true} } }
+            },
+            plugins: [pointErrorBarPlugin]
+        });
+    }
+
+    // --- CHART 3: STANCE vs SWING CONSISTENCY ---
+    function renderTemporalChart(stances, swings) {
+        if (temporalChartInstance) temporalChartInstance.destroy();
+        
+        // Truncate to match if needed (consistency check usually implies matched pairs, but we'll safe guard)
+        const len = Math.min(stances.length, swings.length);
+        const plotStance = stances.slice(0, len);
+        const plotSwing = swings.slice(0, len);
+        const labels = Array.from({length: len}, (_, i) => `${i+1}`);
+        const lims = getScaleLimits([...plotStance, ...plotSwing]);
+
+        temporalChartInstance = new Chart(document.getElementById('temporalChart'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    { label: 'Stance Phase', data: plotStance, borderColor: '#f59e0b', backgroundColor: '#f59e0b', tension: 0.2, pointRadius: 3 },
+                    { label: 'Swing Phase', data: plotSwing, borderColor: '#3b82f6', backgroundColor: '#3b82f6', tension: 0.2, pointRadius: 3 }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { type: 'linear', display: true, position: 'left', min: lims.min, max: lims.max, ticks: {font:{size:9}} }
+                },
+                plugins: { legend: { display: true, labels: {boxWidth: 8, font:{size:9}, usePointStyle:true} } }
+            }
+        });
+    }
+
+    function renderTables(stats, isSpatial) {
+        const decimals = isSpatial ? 1 : 2; 
+        const row = (label, s) => `
+            <tr class="border-b border-slate-100 hover:bg-slate-50">
+                <td class="px-1 py-1 font-medium text-slate-700">${label}</td>
+                <td class="px-1 py-1 font-bold">${s.mean.toFixed(decimals)}</td>
+                <td class="px-1 py-1">${s.sd.toFixed(2)}</td>
+                <td class="px-1 py-1 text-blue-600 font-bold">${s.cov.toFixed(1)}%</td>
+                <td class="px-1 py-1 text-[9px] text-slate-500 whitespace-nowrap">
+                    ${s.ciLow.toFixed(decimals)} - ${s.ciHigh.toFixed(decimals)}
+                </td>
+            </tr>
+        `;
+        if (isSpatial) {
+            document.getElementById('spatialStatsBody').innerHTML = 
+                row('L Step', stats.sLeft) + row('R Step', stats.sRight) + row('Stride', stats.sStride);
+        } else {
+            document.getElementById('temporalStatsBody').innerHTML = 
+                row('Stance', stats.tStance) + row('Swing', stats.tSwing);
+        }
+    }
+
+    function renderRawTable(spatial) {
+        const body = document.getElementById('rawTableBody');
+        body.innerHTML = "";
+        const maxLen = Math.max(spatial.leftStep.length, spatial.rightStep.length, spatial.stride.length);
+        for(let i=0; i<maxLen; i++) {
+            const left = spatial.leftStep[i] !== undefined ? spatial.leftStep[i] : "-";
+            const right = spatial.rightStep[i] !== undefined ? spatial.rightStep[i] : "-";
+            const stride = spatial.stride[i] !== undefined ? spatial.stride[i] : "-";
+            body.innerHTML += `
+                <tr class="hover:bg-slate-50 border-b border-slate-100">
+                    <td class="px-1 py-1 text-slate-500">${i+1}</td>
+                    <td class="px-1 py-1 border-l border-slate-200 text-green-600 font-medium">${left}</td>
+                    <td class="px-1 py-1 text-amber-600 font-medium">${right}</td>
+                    <td class="px-1 py-1 text-blue-600 font-medium">${stride}</td>
+                </tr>
+            `;
+        }
+    }
+
+    function renderPhaseTable(allPhases) {
+        const body = document.getElementById('phaseTableBody');
+        body.innerHTML = "";
+        
+        const renderLeg = (legName, phases, colorClass) => {
+            phases.forEach((p, i) => {
+                const stancePct = p.cycle ? (p.stance / p.cycle * 100).toFixed(0) + '%' : '-';
+                const swingPct = p.cycle ? (p.swing / p.cycle * 100).toFixed(0) + '%' : '-';
+                body.innerHTML += `
+                    <tr class="hover:bg-slate-50 border-b border-slate-100">
+                        <td class="px-1 py-1 font-bold ${colorClass}">${legName}</td>
+                        <td class="px-1 py-1">${p.stance.toFixed(2)}</td>
+                        <td class="px-1 py-1">${p.swing ? p.swing.toFixed(2) : '-'}</td>
+                        <td class="px-1 py-1 text-amber-600 font-bold">${stancePct}</td>
+                        <td class="px-1 py-1 text-blue-600 font-bold">${swingPct}</td>
+                    </tr>
+                `;
+            });
+        };
+        renderLeg('L', allPhases.L, 'text-green-600');
+        renderLeg('R', allPhases.R, 'text-red-600');
+    }
+
+    function renderLogic(spatial) {
+        const container = document.getElementById('logicAlerts');
+        container.innerHTML = "";
+        const diff = Math.abs(calculateStats(spatial.leftStep).mean - calculateStats(spatial.rightStep).mean);
+        if (diff > 5) {
+             container.innerHTML = `<div class="p-2 bg-red-100 border-l-4 border-red-500 text-red-700 rounded text-xs">
+                <strong>⚠️ Asymmetry:</strong> L/R step difference: ${diff.toFixed(1)}cm.</div>`;
+        } else {
+             container.innerHTML = `<div class="p-2 bg-green-100 border-l-4 border-green-500 text-green-700 rounded text-xs">✅ Data consistent.</div>`;
+        }
+    }
+
+    function loadDemoData() {
+        document.getElementById('rawData').value = `Right\tLeft\tFrame\tInt\tTot\tTime\nIC\t\t100\t0\t0\t0.00\n\tTO\t136\t36\t36\t0.15\n\tIC\t244\t108\t144\t0.60\nTO\t\t280\t36\t180\t0.75\nIC\t\t388\t108\t288\t1.20\n\tTO\t424\t36\t324\t1.35\n\tIC\t532\t108\t432\t1.80\nTO\t\t568\t36\t468\t1.95\nIC\t\t676\t108\t576\t2.40\n\nSpatial Data\nRight IC\tLeft IC\tLeft Step Length\t72.5\t73.1\t72.8\nLeft IC\tRight IC\tRight Step Length\t71.8\t72.2\t72.0\nRight IC\tRight IC\tRight Stride Length\t144.3\t145.3\t144.8`;
+        processData();
+    }
+</script>
+</body>
+</html>
