@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gait Analysis Tool - Prof. Fedel</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8fafc; color: #334155; }
+        .main-container { width: 98%; max-width: 1400px; margin: 0 auto; padding-bottom: 100px; }
+        .card { background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); padding: 20px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; margin-bottom: 24px; }
+        .tab-btn { padding: 10px 24px; border-radius: 8px 8px 0 0; font-weight: 600; font-size: 0.9rem; border: 1px solid transparent; border-bottom: none; cursor: pointer; transition: all 0.2s; }
+        .tab-active { background-color: white; border-color: #cbd5e1; color: #1e40af; border-top: 3px solid #1e40af; }
+        .tab-inactive { background-color: #f1f5f9; color: #64748b; }
+        .tab-inactive:hover { background-color: #e2e8f0; }
+        .graph-toggle-btn { display: flex; align-items: center; justify-content: center; padding: 6px 14px; border: 1px solid #cbd5e1; background: #f8fafc; color: #64748b; font-weight: 600; font-size: 0.8rem; cursor: pointer; border-radius: 6px; transition: all 0.2s; min-width: 100px; }
+        .graph-toggle-active { background: #1e40af; color: white; border-color: #1e40af; box-shadow: 0 2px 4px rgba(30, 64, 175, 0.2); }
+        .play-btn { background: #10b981; color: white; border: none; padding: 6px 16px; border-radius: 4px; font-weight: bold; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: background 0.2s; }
+        .play-btn:hover { background: #059669; }
+        .play-btn.active { background: #dc2626; }
+        .canvas-scroll-container { overflow-x: auto; border: 1px solid #e5e7eb; border-radius: 6px; background: #fff; padding: 40px 10px 50px 10px; }
+        .shoeprint-container { overflow-x: auto; border: 1px solid #e5e7eb; border-radius: 6px; background: #fff; padding: 30px 10px; position: relative; }
+        .stat-table th { background-color: #f1f5f9; color: #475569; font-weight: 700; font-size: 0.7rem; text-transform: uppercase; padding: 8px; border-bottom: 2px solid #e2e8f0; }
+        .stat-table td { padding: 8px; font-size: 0.85rem; border-bottom: 1px solid #f1f5f9; color: #334155; }
+        .stat-table tr:last-child td { border-bottom: none; }
+        .no-data { display: flex; align-items: center; justify-content: center; height: 100%; color: #94a3b8; font-style: italic; background: #f8fafc; border-radius: 4px; border: 1px dashed #cbd5e1; }
+        .modal { display: none; position: fixed; z-index: 50; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.5); }
+        .modal-content { background-color: #fefefe; margin: 5% auto; padding: 25px; border-radius: 8px; width: 700px; max-width: 95%; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body class="p-4 text-slate-800 bg-slate-50">
+
+<div class="main-container">
+    <header class="flex justify-between items-center mb-6 pb-4 border-b border-slate-200">
+        <div><h1 class="text-3xl font-bold text-slate-900">Gait Analysis Dashboard</h1><p class="text-slate-500 mt-1">Created by Professor Fedel</p></div>
+        <button onclick="toggleModal()" class="bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 font-semibold py-2 px-4 rounded shadow-sm flex items-center gap-2 text-sm">Instructions</button>
+    </header>
+
+    <div class="flex pl-1"><button id="tab-set1" onclick="switchTab('set1')" class="tab-btn tab-active">Data Set 1</button><button id="tab-set2" onclick="switchTab('set2')" class="tab-btn tab-inactive">Data Set 2</button></div>
+    
+    <div class="bg-white rounded-lg rounded-tl-none shadow-sm p-6 mb-8 border border-slate-300">
+        <div class="flex flex-col md:flex-row justify-between items-end mb-4 gap-4">
+            <div class="w-full md:w-1/3"><label class="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Dataset Label</label><input type="text" id="datasetLabel" class="w-full p-2 border border-slate-300 rounded text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="e.g. Pre-Op Condition"></div>
+            <div class="flex items-center gap-3"><button onclick="loadDemoData()" class="text-blue-600 hover:text-blue-800 text-sm font-medium underline decoration-dotted">Load Demo Data</button><button onclick="processData()" class="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 px-6 rounded-lg shadow transition text-sm">UPDATE ANALYSIS</button></div>
+        </div>
+        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">Raw Data Input (A3:H31)</label><textarea id="rawData" class="w-full h-24 p-3 border border-slate-300 rounded-lg font-mono text-xs focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Paste range A3:H31 here..."></textarea>
+    </div>
+
+    <div id="resultsArea" class="hidden">
+        <div class="flex items-center justify-between mb-4 bg-white p-3 rounded-lg border border-slate-200 shadow-sm sticky top-2 z-20">
+            <div class="flex items-center gap-2"><span class="text-xs font-bold text-slate-400 uppercase mr-2">Active View:</span><button id="toggle-set1" onclick="switchTab('set1')" class="graph-toggle-btn graph-toggle-active">Data Set 1</button><button id="toggle-set2" onclick="switchTab('set2')" class="graph-toggle-btn">Data Set 2</button></div>
+            <div class="text-sm font-bold text-blue-900" id="displayLabel"></div>
+        </div>
+
+        <div class="card">
+            <div class="mb-4 border-b pb-2 flex justify-between items-center">
+                <div><h3 class="text-lg font-bold text-slate-800">Gait Cycle Visualization</h3><div class="text-xs text-slate-500 mt-1 flex gap-3"><div class="flex items-center"><span id="legendStance" class="w-3 h-3 mr-1 rounded-sm"></span> Stance</div><div class="flex items-center"><span id="legendSwing" class="w-3 h-3 mr-1 rounded-sm border border-slate-300"></span> Swing</div></div></div>
+                <label class="flex items-center cursor-pointer select-none text-sm text-slate-600 bg-slate-50 px-3 py-1.5 rounded border border-slate-200 hover:bg-slate-100"><input type="checkbox" id="colorSchemeToggle" class="mr-2" onchange="processData()" checked> Use Alternate Colors (Blue/Maroon)</label>
+            </div>
+            <div class="canvas-scroll-container"><canvas id="gaitVisualizerCanvas" height="420"></canvas></div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="flex flex-col h-full"><div class="card h-full mb-0"><div class="mb-2 border-b pb-1"><h3 class="text-sm font-bold text-slate-800">Spatial Means (cm)</h3><p class="text-[10px] text-slate-500">Error Bars = 95% CI. Fixed scale.</p></div><div class="h-64 w-full relative mb-2" id="containerSpatialBar"><canvas id="spatialBarChart"></canvas></div><div class="overflow-x-auto mt-auto"><table class="w-full text-left stat-table"><thead><tr><th>Metric</th><th>Mean</th><th>SD</th><th>CoV</th><th>95% CI</th></tr></thead><tbody id="spatialStatsBody"></tbody></table></div></div></div>
+            <div class="flex flex-col h-full"><div class="card h-full mb-0"><div class="mb-2 border-b pb-1"><h3 class="text-sm font-bold text-slate-800">Spatial Pattern (Cycle-by-Cycle)</h3><p class="text-[10px] text-slate-500">Error Bars on Dots = 95% CI. Fixed scale.</p></div><div class="h-64 w-full relative mb-2" id="containerSpatialCombined"><canvas id="spatialCombinedChart"></canvas></div><div class="overflow-x-auto mt-auto max-h-48 overflow-y-auto"><table class="w-full text-left stat-table"><thead class="sticky top-0 bg-white"><tr><th>Cycle</th><th>L Step</th><th>R Step</th><th>Stride</th></tr></thead><tbody id="rawTableBody"></tbody></table></div></div></div>
+            <div class="flex flex-col h-full"><div class="card h-full mb-0"><div class="mb-2 border-b pb-1"><h3 class="text-sm font-bold text-slate-800">Stance & Swing Consistency (s)</h3><p class="text-[10px] text-slate-500">Check for asymmetry. Fixed scale.</p></div><div class="h-64 w-full relative mb-2" id="containerTemporal"><canvas id="temporalChart"></canvas></div><div class="overflow-x-auto mt-2 mb-2"><table class="w-full text-left stat-table"><thead><tr><th>Metric</th><th>Mean</th><th>SD</th><th>CoV</th><th>95% CI</th></tr></thead><tbody id="temporalStatsBody"></tbody></table></div><div class="overflow-x-auto mt-auto max-h-32 overflow-y-auto"><table class="w-full text-left stat-table"><thead class="sticky top-0 bg-white"><tr><th>Leg</th><th>Stance</th><th>Swing</th><th>%St</th><th>%Sw</th></tr></thead><tbody id="phaseTableBody"></tbody></table></div></div></div>
+        </div>
+
+        <div class="card mt-6">
+            <div class="mb-4 border-b pb-2 flex flex-wrap justify-between items-center gap-4">
+                <div><h3 class="text-lg font-bold text-slate-800">Spatial Pattern Visualization</h3><p class="text-xs text-slate-500 mt-1">Scale: Green=Left, Red=Right. Heel-to-Heel. Trial 1 on Top, Trial 2 on Bottom.</p></div>
+                <div class="flex items-center gap-4 flex-wrap">
+                    <div class="flex items-center gap-3 bg-slate-100 px-3 py-2 rounded border border-slate-200">
+                        <button id="replayBtn" class="play-btn" onclick="runShoeprintAnimation()"><span>▶</span> Replay Real-Time</button>
+                        <label class="flex items-center text-xs font-semibold text-slate-600 cursor-pointer border-l pl-3 border-slate-300 ml-2"><input type="checkbox" id="clearOnToeOff" class="mr-1" checked> Clear on Toe Off</label>
+                    </div>
+                    <div class="flex items-center bg-slate-50 px-2 py-1 rounded border border-slate-200"><label for="shoeSizeInput" class="text-xs font-semibold text-slate-500 mr-2">Shoe Size (cm):</label><input type="number" id="shoeSizeInput" value="23" min="10" max="40" class="w-12 text-center text-sm border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 outline-none" onchange="drawShoeprintVisualization(false)"></div>
+                </div>
+            </div>
+            <div class="shoeprint-container"><canvas id="shoeprintCanvas" height="400"></canvas></div>
+        </div>
+        <div id="logicOutput" class="mt-6 hidden"><div id="logicAlerts" class="space-y-2"></div></div>
+    </div>
+</div>
+
+<div id="infoModal" class="modal">
+    <div class="modal-content">
+        <div class="flex justify-between items-center mb-4 border-b pb-2"><h2 class="text-xl font-bold text-slate-800">Gait Analysis Tool Instructions</h2><span onclick="toggleModal()" class="text-2xl cursor-pointer text-slate-400 hover:text-slate-800">&times;</span></div>
+        <div class="text-sm text-slate-600 space-y-4 max-h-[70vh] overflow-y-auto pr-2">
+            <div class="bg-blue-50 p-4 rounded-lg border border-blue-200"><h3 class="font-bold text-blue-800 mb-2">1. Data Preparation</h3><ul class="list-disc pl-5 space-y-1 text-blue-700"><li>Open your Excel file containing the gait data.</li><li>Ensure columns include <strong>Leg</strong>, <strong>Events</strong>, and <strong>Total Time</strong>.</li><li>Highlight range <strong>A3 to H31</strong>.</li><li>Copy selection (Ctrl+C).</li></ul></div>
+            <div class="bg-slate-50 p-4 rounded-lg border border-slate-200"><h3 class="font-bold text-slate-800 mb-2">2. Managing Datasets</h3><ol class="list-decimal pl-5 space-y-1"><li>Click <strong>"Data Set 1"</strong> tab.</li><li>Enter label, paste data, click <strong>Analyze</strong>.</li><li>Repeat for <strong>"Data Set 2"</strong>.</li><li>Use <strong>Active View</strong> toggle.</li></ol></div>
+            <div><h3 class="font-bold text-slate-800 mb-2">3. Visuals</h3><ul class="list-disc pl-5 space-y-2"><li><strong>Gait Cycle Vis:</strong> Timeline of phases.</li><li><strong>Shoeprints:</strong> Scaled visualization. <strong>Replay</strong> for animation.</li></ul></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const T_DIST = { 1: 12.71, 2: 4.30, 3: 3.18, 4: 2.78, 5: 2.57, 6: 2.45, 10: 2.23, 100: 1.98 };
+    const REFERENCE_SHOE_CM = 23;
+    const SCHEMES = { 
+        default: { stanceL: '#66c2a5', swingL: '#b3e2cd', stanceR: '#66c2a5', swingR: '#b3e2cd', ds: '#ffffff', ssL: '#e5f5f9', ssR: '#e5f5f9', textStance: '#ffffff', textSwing: '#333333' }, 
+        alternate: { stanceL: '#819cf0', swingL: '#9e3b63', stanceR: '#819cf0', swingR: '#9e3b63', ds: '#ffffff', ssL: '#e1f5fe', ssR: '#e1f5fe', textStance: '#000000', textSwing: '#ffffff' } 
+    };
+    const SPATIAL_COLORS = { L: '#10b981', R: '#ef4444', Stride: '#3b82f6' };
+
+    let appData = { set1: { raw: "", label: "", processed: null }, set2: { raw: "", label: "", processed: null } };
+    let currentTab = 'set1';
+    let charts = { spatialBar: null, spatialLine: null, temporal: null };
+    let chartScales = { spatial: null, stride: null, temporal: null };
+    let animId = null;
+    let replayTimeout = null;
+
+    function switchTab(t) {
+        appData[currentTab].raw = document.getElementById('rawData').value;
+        appData[currentTab].label = document.getElementById('datasetLabel').value;
+        currentTab = t;
+        document.getElementById('rawData').value = appData[currentTab].raw;
+        document.getElementById('datasetLabel').value = appData[currentTab].label;
+        updateTabStyles('tab-set1', 'tab-set2', t);
+        updateTabStyles('toggle-set1', 'toggle-set2', t, 'graph-toggle-active');
+        document.getElementById('toggle-set1').textContent = appData.set1.label || "Data Set 1";
+        document.getElementById('toggle-set2').textContent = appData.set2.label || "Data Set 2";
+        if(appData[currentTab].raw.trim().length > 0) processData();
+        else document.getElementById('resultsArea').classList.add('hidden');
+    }
+
+    function updateTabStyles(id1, id2, activeId, activeClass = 'tab-active') {
+        const t1 = document.getElementById(id1), t2 = document.getElementById(id2);
+        const isSet1 = activeId.includes('set1');
+        if(isSet1) {
+            t1.classList.add(activeClass); t1.classList.remove('tab-inactive');
+            t2.classList.remove(activeClass); t2.classList.add('tab-inactive');
+        } else {
+            t2.classList.add(activeClass); t2.classList.remove('tab-inactive');
+            t1.classList.remove(activeClass); t1.classList.add('tab-inactive');
+        }
+    }
+
+    function toggleModal() {
+        const m = document.getElementById("infoModal");
+        m.style.display = (m.style.display === "block") ? "none" : "block";
+    }
+    window.onclick = function(e) { if(e.target == document.getElementById("infoModal")) toggleModal(); }
+
+    function processData() {
+        if(animId) { cancelAnimationFrame(animId); animId = null; }
+        if(replayTimeout) { clearTimeout(replayTimeout); replayTimeout = null; }
+        const rBtn = document.getElementById('replayBtn');
+        if(rBtn) { rBtn.classList.remove('active'); rBtn.innerHTML = "<span>▶</span> Replay Real-Time"; }
+
+        appData[currentTab].raw = document.getElementById('rawData').value;
+        appData[currentTab].label = document.getElementById('datasetLabel').value;
+        document.getElementById('displayLabel').textContent = "Analysis: " + (appData[currentTab].label || (currentTab==='set1'?"Data Set 1":"Data Set 2"));
+        document.getElementById('toggle-set1').textContent = appData.set1.label || "Data Set 1";
+        document.getElementById('toggle-set2').textContent = appData.set2.label || "Data Set 2";
+
+        const p = parseRawData(appData[currentTab].raw); 
+        appData[currentTab].processed = p;
+
+        if(appData.set1.processed && appData.set2.processed) updateGlobalScales(); 
+        else { 
+            if(p.stats) {
+                chartScales.spatial = getLimitsFromStats([p.stats.sLeft,p.stats.sRight]); 
+                chartScales.stride = getLimitsFromStats([p.stats.sStride]); 
+                chartScales.temporal = getScaleLimits([...p.allStances,...p.allSwings]);
+            }
+        }
+
+        const res = document.getElementById('resultsArea'); 
+        res.classList.remove('hidden'); 
+        document.getElementById('logicOutput').classList.remove('hidden');
+
+        const useAlt = document.getElementById('colorSchemeToggle').checked; 
+        updateLegendColors(useAlt); 
+        const colors = useAlt ? SCHEMES.alternate : SCHEMES.default;
+
+        if(p.events.length > 0) drawGaitVisualizer(p.events, p.allPhases, colors); 
+        else clearCanvas('gaitVisualizerCanvas','No Temporal Data');
+
+        if(p.spatial.leftStep.length > 0){
+            resetCanvas('containerSpatialBar','spatialBarChart');
+            resetCanvas('containerSpatialCombined','spatialCombinedChart');
+            renderSpatialBarChart(p.stats, chartScales.spatial, chartScales.stride);
+            renderSpatialCombinedChart(p.spatial, p.stats, chartScales.spatial, chartScales.stride);
+            renderTables(p.stats, true); 
+            renderRawTable(p.spatial);
+            renderLogic(p.spatial);
+        } else {
+            showNoData('containerSpatialBar','spatialStatsBody');
+            showNoData('containerSpatialCombined','rawTableBody');
+        }
+
+        if(p.events.length > 0){
+            resetCanvas('containerTemporal','temporalChart');
+            renderTemporalChart(p.allStances, p.allSwings, colors, chartScales.temporal);
+            renderTables(p.stats, false); 
+            renderPhaseTable(p.allPhases, p.events);
+        } else {
+            showNoData('containerTemporal','temporalStatsBody');
+            document.getElementById('phaseTableBody').innerHTML = "";
+        }
+
+        drawShoeprintVisualization(false); 
+    }
+
+    function runShoeprintAnimation() {
+        if(animId) { cancelAnimationFrame(animId); animId = null; }
+        if(replayTimeout) { clearTimeout(replayTimeout); replayTimeout = null; }
+
+        const btn = document.getElementById('replayBtn');
+        btn.classList.add('active'); btn.innerHTML = "<span>■</span> Stop";
+
+        let maxTime = 0;
+        const p1 = appData.set1.processed, p2 = appData.set2.processed;
+        if(p1 && p1.events.length) maxTime = Math.max(maxTime, p1.events[p1.events.length-1].time);
+        if(p2 && p2.events.length) maxTime = Math.max(maxTime, p2.events[p2.events.length-1].time);
+        
+        if(maxTime === 0) return;
+
+        const canvas = document.getElementById('shoeprintCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 1. Draw Static Start (Time = -1 to hide step 1)
+        drawShoeprintVisualization(true, -1);
+
+        // 2. Pause 1s then loop
+        replayTimeout = setTimeout(() => {
+            const startTime = performance.now();
+            const duration = (maxTime + 0.5) * 1000;
+
+            function step(timestamp) {
+                const elapsed = timestamp - startTime;
+                const currentTimeSec = elapsed / 1000;
+                drawShoeprintVisualization(true, currentTimeSec);
+                if(elapsed < duration) { animId = requestAnimationFrame(step); } 
+                else { 
+                    drawShoeprintVisualization(false); 
+                    btn.classList.remove('active'); btn.innerHTML = "<span>▶</span> Replay Real-Time";
+                    animId = null; 
+                }
+            }
+            animId = requestAnimationFrame(step);
+        }, 1000);
+    }
+
+    function generateFootprints(proc, marginX) {
+        if (!proc || !proc.spatial || proc.events.length === 0) return { footprints: [], totalDist: 0 };
+        const sp = proc.spatial;
+        const ICs = proc.events.filter(e => e.type === 'IC').sort((a,b) => a.time - b.time);
+        const TOs = proc.events.filter(e => e.type === 'TO');
+        
+        let footprints = [];
+        let currX = marginX; 
+        
+        const firstIC = ICs[0];
+        const startSide = firstIC.side; 
+        
+        const initialSide = (startSide === 'L') ? 'R' : 'L';
+        const initTO = TOs.find(e => e.side === initialSide && e.time > 0);
+        
+        // Initial Standing Foot (Index -1)
+        footprints.push({
+            side: initialSide,
+            x: currX,
+            tStart: 0,
+            tEnd: initTO ? initTO.time : 999,
+            stepLen: null,
+            strideLen: null,
+            isInitial: true
+        });
+        
+        let lastFootX = { [initialSide]: currX, [startSide]: null };
+        let lIdx = 0, rIdx = 0;
+
+        for (let i = 0; i < ICs.length; i++) {
+            const event = ICs[i];
+            const side = event.side;
+            let stepDist = 0;
+
+            if (side === 'L') {
+                if (lIdx < sp.leftStep.length) stepDist = sp.leftStep[lIdx];
+                lIdx++;
+            } else {
+                if (rIdx < sp.rightStep.length) stepDist = sp.rightStep[rIdx];
+                rIdx++;
+            }
+
+            const oppSide = side === 'L' ? 'R' : 'L';
+            const prevOppX = lastFootX[oppSide];
+            
+            if (prevOppX !== null) {
+                currX = prevOppX + stepDist; 
+            } else {
+                currX += stepDist;
+            }
+
+            const myTO = TOs.find(e => e.side === side && e.time > event.time);
+
+            let stride = null;
+            let prevSameX = lastFootX[side];
+            if (prevSameX !== null) {
+                stride = currX - prevSameX;
+            }
+
+            footprints.push({
+                side: side,
+                x: currX, 
+                tStart: event.time,
+                tEnd: myTO ? myTO.time : 999,
+                stepLen: stepDist, 
+                strideLen: stride,
+                prevSameX: prevSameX,
+                isInitial: false
+            });
+            lastFootX[side] = currX;
+        }
+        return { footprints, totalDist: currX };
+    }
+
+    function drawShoeprintVisualization(isAnim=false, curTime=0){
+        const c=document.getElementById('shoeprintCanvas'); if(!c)return;
+        const ctx=c.getContext('2d');
+        c.style.width='100%'; const w=c.width=1200; const h=c.height=400; 
+        ctx.clearRect(0,0,w,h);
+
+        const p1=appData.set1.processed, p2=appData.set2.processed;
+        if((!p1||!p1.spatial)&&(!p2||!p2.spatial)){
+            ctx.font="16px Arial"; ctx.fillStyle="#999"; ctx.textAlign="center"; ctx.fillText("No Spatial Data Available",w/2,h/2); return;
+        }
+
+        const marginX=80;
+        const fp1 = generateFootprints(p1, marginX); 
+        const fp2 = generateFootprints(p2, marginX);
+        
+        const maxDist = Math.max(fp1.totalDist || 0, fp2.totalDist || 0);
+        if (maxDist === 0) return;
+
+        const availableWidth = w - marginX*2 - 100;
+        const pxPerCm = availableWidth / (maxDist - marginX); 
+
+        const shoeIn=document.getElementById('shoeSizeInput'), sz=shoeIn?(parseFloat(shoeIn.value)||23):23;
+        const shLen=sz*pxPerCm, shWid=shLen*0.45, clearTO=document.getElementById('clearOnToeOff').checked;
+
+        const drawShoe = (heelX, y, isLeft, color, opacity=1) => {
+            ctx.globalAlpha = opacity; ctx.fillStyle = color;
+            ctx.beginPath(); ctx.ellipse(heelX, y, shLen*0.15, shWid*0.3, 0, 0, 2*Math.PI); ctx.fill(); 
+            ctx.beginPath(); const soleX=heelX+shLen*0.45, tilt=isLeft?0.2:-0.2; // Corrected: L(Down/In) R(Up/In)
+            ctx.ellipse(soleX, y, shLen*0.3, shWid*0.4, tilt, 0, 2*Math.PI); ctx.fill(); 
+            ctx.globalAlpha = 1.0;
+        };
+        const drawBracket = (x1, x2, y, tx, col, top) => {
+             const hD=top?10:-10, yOff=top?-25:25, bY=y+yOff;
+             ctx.strokeStyle=col; ctx.lineWidth=1; ctx.beginPath();
+             ctx.moveTo(x1, bY+hD); ctx.lineTo(x1, bY); ctx.lineTo(x2, bY); ctx.lineTo(x2, bY+hD); ctx.stroke();
+             ctx.fillStyle=col; ctx.textAlign="center"; ctx.font="bold 11px Arial";
+             ctx.fillText(tx, (x1+x2)/2, bY+(top?-5:15));
+        };
+
+        const renderRow = (fps, label, startY) => {
+            if(!fps || fps.length===0) return;
+            const yR=startY+shWid*0.7, yL=startY-shWid*0.7;
+            ctx.fillStyle="#333"; ctx.textAlign="left"; ctx.font="bold 16px Arial"; ctx.fillText(label, 10, startY);
+
+            fps.forEach(fp => {
+                // VISIBILITY LOGIC
+                let isVisible = true;
+                let opacity = 1;
+
+                if (isAnim) {
+                    if (fp.isInitial) {
+                        // Initial foot is ALWAYS visible from start.
+                        // Only fades if ClearTO is ON and time > tEnd.
+                        if (clearTO && curTime > fp.tEnd) opacity = 0.1;
+                    } else {
+                        // Regular step
+                        if (curTime < fp.tStart) isVisible = false;
+                        else if (clearTO && curTime > fp.tEnd) opacity = 0.1;
+                    }
+                }
+
+                if (isVisible) {
+                    const drawX = (fp.x - marginX) * pxPerCm + marginX;
+                    const drawY = (fp.side === 'L') ? yL : yR;
+                    const col = (fp.side === 'L') ? SPATIAL_COLORS.L : SPATIAL_COLORS.R;
+
+                    if(opacity > 0.05) {
+                        drawShoe(drawX, drawY, fp.side==='L', col, opacity);
+                    }
+
+                    // Measurements: Show if foot is currently visible OR was visible
+                    if(opacity > 0.05 || (isAnim && curTime > fp.tEnd)) {
+                        if(fp.stepLen !== null) {
+                            ctx.fillStyle="#555"; ctx.textAlign="center"; ctx.font="11px Arial";
+                            const prevX = ((fp.x - fp.stepLen) - marginX) * pxPerCm + marginX;
+                            ctx.fillText(fp.stepLen.toFixed(1), (prevX+drawX)/2, startY);
+                        }
+                        if(fp.strideLen !== null && fp.prevSameX !== null) {
+                            const prevSameDrawX = (fp.prevSameX - marginX) * pxPerCm + marginX;
+                            const isTop = (fp.side === 'L');
+                            const bY = isTop ? (yL - shWid - 5) : (yR + shWid + 5);
+                            drawBracket(prevSameDrawX, drawX, bY, fp.strideLen.toFixed(1), SPATIAL_COLORS.Stride, isTop);
+                        }
+                    }
+                }
+            });
+            
+            if(!isAnim || curTime > fps[fps.length-1].tStart) {
+                const lastFp = fps[fps.length-1];
+                const endX = (lastFp.x - marginX) * pxPerCm + marginX + shLen + 20;
+                ctx.fillStyle="#333"; ctx.textAlign="left"; ctx.font="bold 14px Arial";
+                ctx.fillText("End", endX, startY);
+            }
+        };
+
+        renderRow(fp1.footprints, appData.set1.label||"Set 1", 100);
+        renderRow(fp2.footprints, appData.set2.label||"Set 2", 300);
+    }
+
+    function parseRawData(r){
+        const l=r.split('\n');let sp={leftStep:[],rightStep:[],stride:[]},ev=[],sec='unknown';
+        l.forEach(line=>{
+            const row=line.trim().split(/\t+/);if(row.length<2)return;
+            if(line.includes("Spatial Data")){sec='spatial';return;}
+            if(row[0].includes("Leg")||row[1].includes("Leg")||row[2]=="Frame"){sec='temporal';return;}
+            if(sec==='spatial'||line.includes("Step Length")||line.includes("Stride Length")){
+                const v=row.filter(x=>!isNaN(parseFloat(x))&&isFinite(x)).map(Number),ln=line.toLowerCase();
+                if(ln.includes("left step length"))sp.leftStep=v;
+                if(ln.includes("right step length"))sp.rightStep=v;
+                if(ln.includes("stride length"))sp.stride=v;
+            }
+            if(sec==='temporal'||(!sec&&(row[0]==='IC'||row[0]==='TO'||row[1]==='IC'))){
+                const rE=row[0]?row[0].trim():"",lE=row[1]?row[1].trim():"",ns=row.filter(x=>!isNaN(parseFloat(x))&&isFinite(x));
+                if(ns.length>0){const t=parseFloat(ns[ns.length-1]);if(rE==='IC'||rE==='TO')ev.push({time:t,side:'R',type:rE});if(lE==='IC'||lE==='TO')ev.push({time:t,side:'L',type:lE});}
+            }
+        });
+        let lP=analyzeLegPhases(ev.filter(e=>e.side==='L')),rP=analyzeLegPhases(ev.filter(e=>e.side==='R')),aP={L:lP,R:rP},aI=analyzeAtomicIntervals(ev);
+        let aSt=[...lP.filter(p=>p.type==='stance').map(p=>p.duration),...rP.filter(p=>p.type==='stance').map(p=>p.duration)];
+        let aSw=[...lP.filter(p=>p.type==='swing').map(p=>p.duration),...rP.filter(p=>p.type==='swing').map(p=>p.duration)];
+        const st={sLeft:calculateStats(sp.leftStep),sRight:calculateStats(sp.rightStep),sStride:calculateStats(sp.stride),tDS:calculateStats(aI.ds),tSS:calculateStats(aI.sw),tStance:calculateStats(aSt),tSwing:calculateStats(aSw)};
+        return {events:ev,spatial:sp,allPhases:aP,stats:st,allStances:aSt,allSwings:aSw};
+    }
+    
+    function updateGlobalScales(){const p1=appData.set1.processed,p2=appData.set2.processed;chartScales.spatial=getLimitsFromStats([p1.stats.sLeft,p1.stats.sRight,p2.stats.sLeft,p2.stats.sRight]);chartScales.stride=getLimitsFromStats([p1.stats.sStride,p2.stats.sStride]);chartScales.temporal=getScaleLimits([...p1.allStances,...p1.allSwings,...p2.allStances,...p2.allSwings]);}
+    function analyzeLegPhases(lE){lE.sort((a,b)=>a.time-b.time);let ph=[];for(let i=0;i<lE.length-1;i++){const c=lE[i],n=lE[i+1];let t=null;if(c.type==='IC'&&n.type==='TO')t='stance';else if(c.type==='TO'&&n.type==='IC')t='swing';if(t){let cd=null;if(t==='stance'){const ni=lE.find((e,idx)=>idx>i&&e.type==='IC');if(ni)cd=ni.time-c.time;}else{const pi=lE.slice(0,i).reverse().find(e=>e.type==='IC');if(pi)cd=n.time-pi.time;}ph.push({type:t,start:c.time,end:n.time,duration:n.time-c.time,cycle:cd});}}return ph;}
+    function analyzeAtomicIntervals(aE){let s=aE.sort((a,b)=>a.time-b.time),ds=[],sw=[];for(let i=0;i<s.length-1;i++){let dt=s[i+1].time-s[i].time;if(dt<0.01)continue;if(s[i].type==='IC'&&s[i+1].type==='TO')ds.push(dt);else if(s[i].type==='TO'&&s[i+1].type==='IC')sw.push(dt);}return {ds,sw};}
+    function calculateStats(a){if(!a||a.length===0)return{mean:0,sd:0,cov:0,ciMargin:0,ciLow:0,ciHigh:0};const n=a.length,m=a.reduce((x,y)=>x+y,0)/n,v=a.reduce((x,y)=>x+Math.pow(y-m,2),0)/(n>1?n-1:1),sd=Math.sqrt(v);return{mean:m,sd:sd,cov:m?(sd/m)*100:0,ciMargin:1.96*(sd/Math.sqrt(n)),ciLow:m-1.96*(sd/Math.sqrt(n)),ciHigh:m+1.96*(sd/Math.sqrt(n))};}
+    function getScaleLimits(v){if(!v||v.length===0)return{min:0,max:1};let mn=Math.min(...v),mx=Math.max(...v),r=mx-mn;if(r===0)r=mx*0.1||0.1;return{min:Math.max(0,mn-r*0.2),max:mx+r*0.2};}
+    function getLimitsFromStats(sA){let mx=0,mn=Infinity,hd=false;sA.forEach(s=>{if(s.mean===0)return;hd=true;mx=Math.max(mx,s.mean+s.ciMargin);mn=Math.min(mn,s.mean-s.ciMargin);});if(!hd)return{min:0,max:10};const r=mx-mn,p=r*0.2||mx*0.1;return{min:Math.max(0,mn-p),max:mx+p};}
+
+    function updateLegendColors(useAlt){
+        const c=useAlt?SCHEMES.alternate:SCHEMES.default;
+        document.getElementById('legendStance').style.backgroundColor=c.stanceL;
+        document.getElementById('legendSwing').style.backgroundColor=c.swingL;
+    }
+
+    function drawGaitVisualizer(ev,ph,scheme){
+        const c=document.getElementById('gaitVisualizerCanvas'),ctx=c.getContext('2d');ev.sort((a,b)=>a.time-b.time);const sT=ev[0].time,eT=ev[ev.length-1].time,dur=eT-sT,w=Math.max(1000,dur*250+150);c.width=w;const h=420,m={l:90,t:130},sc=(w-150)/dur;ctx.clearRect(0,0,w,h);const bH=50,yL=m.t,yS=yL+bH,yR=yS+bH;
+        const dB=(t1,t2,cl,tx,st,tc)=>{const x=m.l+(t1-sT)*sc,bw=(t2-t1)*sc;ctx.fillStyle=cl;ctx.fillRect(x,y,bw,bH);ctx.strokeStyle="#fff";ctx.lineWidth=1;ctx.strokeRect(x,y,bw,bH);if(bw>35){ctx.fillStyle=tc||"#000";ctx.textAlign="center";ctx.font="bold 12px Arial";ctx.fillText(tx,x+bw/2,y+bH/2-6);if(st){ctx.font="10px Arial";ctx.fillText(st,x+bw/2,y+bH/2+10);}}};
+        const dBr=(t1,t2,tx,top)=>{const x1=m.l+(t1-sT)*sc,x2=m.l+(t2-sT)*sc,yB=top?30:h-30,hD=top?10:-10;ctx.strokeStyle="#333";ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x1,yB+hD);ctx.lineTo(x1,yB);ctx.lineTo(x2,yB);ctx.lineTo(x2,yB+hD);ctx.stroke();ctx.fillStyle="#333";ctx.textAlign="center";ctx.font="bold 12px Arial";ctx.fillText(tx,(x1+x2)/2,yB+(top?-5:15));};
+        let y=yL;['L','R'].forEach(l=>{y=(l==='L')?yL:yR;ph[l].forEach(p=>{const pct=p.cycle?Math.round((p.duration/p.cycle)*100)+"%":"",sub=`${p.duration.toFixed(2)}s (${pct})`,col=p.type==='stance'?(l==='L'?scheme.stanceL:scheme.stanceR):(l==='L'?scheme.swingL:scheme.swingR),txt=p.type==='stance'?(l==='L'?"Left Stance":"Right Stance"):(l==='L'?"Left Swing":"Right Swing"),tc=p.type==='stance'?scheme.textStance:scheme.textSwing;dB(p.start,p.end,col,txt,sub,tc);});});
+        y=yS;for(let i=0;i<ev.length-1;i++){const c=ev[i],n=ev[i+1];if(c.type==='IC'&&n.type==='TO'){dB(c.time,n.time,scheme.ds,"Double","Support","#333");ctx.strokeStyle="#ccc";ctx.strokeRect(m.l+(c.time-sT)*sc,y,(n.time-c.time)*sc,bH);}else if(c.type==='TO'&&n.type==='IC')dB(c.time,n.time,(c.side==='L')?scheme.ssR:scheme.ssL,(c.side==='L')?"Right SS":"Left SS","","#333");}
+        ctx.textAlign="center";ctx.font="bold 10px Segoe UI,Arial";ev.forEach(e=>{const x=m.l+(e.time-sT)*sc;ctx.strokeStyle="#333";ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x,yL);ctx.lineTo(x,yR+bH);ctx.stroke();ctx.fillStyle="#000";const yB=(e.side==='L')?yL-45:yR+bH+15;ctx.fillText(e.side==='L'?"Left":"Right",x,yB);ctx.fillText(e.type==='IC'?"initial contact":"toe off",x,yB+12);ctx.fillStyle="#666";ctx.font="10px monospace";ctx.fillText(e.time.toFixed(2)+"s",x,yB+24);ctx.font="bold 10px Segoe UI,Arial";});
+        ['L','R'].forEach(l=>{const ics=ev.filter(e=>e.side===l&&e.type==='IC');for(let i=0;i<ics.length-1;i++)dBr(ics[i].time,ics[i+1].time,`Gait Cycle: ${(ics[i+1].time-ics[i].time).toFixed(2)}s`,l==='L');});
+        ctx.textAlign="right";ctx.font="bold 14px Arial";ctx.fillStyle="#1e293b";ctx.fillText("Left Leg",m.l-15,yL+bH/2+5);ctx.fillText("Support",m.l-15,yS+bH/2+5);ctx.fillText("Right Leg",m.l-15,yR+bH/2+5);
+    }
+
+    function resetCanvas(cId,canId){document.getElementById(cId).innerHTML=`<canvas id="${canId}"></canvas>`;}
+    function clearCanvas(id,t){const x=document.getElementById(id).getContext('2d');x.clearRect(0,0,1000,420);x.font="14px Arial";x.fillStyle="#999";x.textAlign="center";x.fillText(t,500,210);}
+    
+    function renderSpatialBarChart(st,spSc,stSc){if(charts.spatialBar)charts.spatialBar.destroy();const lL=spSc||getLimitsFromStats([st.sLeft,st.sRight]),rL=stSc||getLimitsFromStats([st.sStride]);charts.spatialBar=new Chart(document.getElementById('spatialBarChart'),{type:'bar',data:{labels:['Left Step','Right Step','Stride'],datasets:[{label:'Step',data:[st.sLeft.mean,st.sRight.mean,null],backgroundColor:[SPATIAL_COLORS.L,SPATIAL_COLORS.R,SPATIAL_COLORS.L],borderWidth:1,errorBars:[st.sLeft.ciMargin,st.sRight.ciMargin,null],yAxisID:'y',order:2},{label:'Stride',data:[null,null,st.sStride.mean],backgroundColor:SPATIAL_COLORS.Stride,borderWidth:1,errorBars:[null,null,st.sStride.ciMargin],yAxisID:'y1',order:1}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{position:'left',min:lL.min,max:lL.max},y1:{position:'right',grid:{drawOnChartArea:false},min:rL.min,max:rL.max}},plugins:{legend:{display:false}}},plugins:[{id:'errorBar',afterDatasetsDraw:(c)=>{const{ctx,scales}=c;c.data.datasets.forEach((d,i)=>{if(!d.errorBars)return;const m=c.getDatasetMeta(i);m.data.forEach((b,idx)=>{const v=d.data[idx],e=d.errorBars[idx];if(!e)return;const x=b.x,yH=scales[d.yAxisID].getPixelForValue(v+e),yL=scales[d.yAxisID].getPixelForValue(v-e);ctx.save();ctx.lineWidth=2;ctx.strokeStyle='#333';ctx.beginPath();ctx.moveTo(x,yL);ctx.lineTo(x,yH);ctx.stroke();ctx.beginPath();ctx.moveTo(x-6,yL);ctx.lineTo(x+6,yL);ctx.stroke();ctx.beginPath();ctx.moveTo(x-6,yH);ctx.lineTo(x+6,yH);ctx.stroke();ctx.restore();});});}}]});}
+    function renderSpatialCombinedChart(sp,st,spSc,stSc){if(charts.spatialLine)charts.spatialLine.destroy();const m=Math.max(sp.leftStep.length,sp.rightStep.length,sp.stride.length),l=Array.from({length:m},(_,i)=>i+1),lL=spSc||getLimitsFromStats([st.sLeft,st.sRight]),rL=stSc||getLimitsFromStats([st.sStride]);const lMarg=Array(sp.leftStep.length).fill(st.sLeft.ciMargin),rMarg=Array(sp.rightStep.length).fill(st.sRight.ciMargin),sMarg=Array(sp.stride.length).fill(st.sStride.ciMargin);charts.spatialLine=new Chart(document.getElementById('spatialCombinedChart'),{type:'line',data:{labels:l,datasets:[{label:'L Step',data:sp.leftStep,borderColor:SPATIAL_COLORS.L,backgroundColor:SPATIAL_COLORS.L,tension:0.1,yAxisID:'y',pointRadius:4,errorBars:lMarg},{label:'R Step',data:sp.rightStep,borderColor:SPATIAL_COLORS.R,backgroundColor:SPATIAL_COLORS.R,tension:0.1,yAxisID:'y',pointRadius:4,errorBars:rMarg},{label:'Stride',data:sp.stride,borderColor:SPATIAL_COLORS.Stride,backgroundColor:SPATIAL_COLORS.Stride,borderDash:[2,2],tension:0.1,yAxisID:'y1',pointRadius:4,errorBars:sMarg}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{position:'left',min:lL.min,max:lL.max},y1:{position:'right',grid:{drawOnChartArea:false},min:rL.min,max:rL.max}},plugins:{legend:{labels:{boxWidth:8,usePointStyle:true}}}},plugins:[{id:'pointErrorBar',afterDatasetsDraw:(c)=>{const{ctx,scales}=c;c.data.datasets.forEach((d,i)=>{if(!d.errorBars)return;const m=c.getDatasetMeta(i);m.data.forEach((p,idx)=>{const v=d.data[idx],e=d.errorBars[idx];if(!e)return;const x=p.x,yH=scales[d.yAxisID].getPixelForValue(v+e),yL=scales[d.yAxisID].getPixelForValue(v-e);ctx.save();ctx.lineWidth=1.5;ctx.strokeStyle=d.borderColor;ctx.beginPath();ctx.moveTo(x,yL);ctx.lineTo(x,yH);ctx.stroke();ctx.beginPath();ctx.moveTo(x-3,yL);ctx.lineTo(x+3,yL);ctx.stroke();ctx.beginPath();ctx.moveTo(x-3,yH);ctx.lineTo(x+3,yH);ctx.stroke();ctx.restore();});});}}]});}
+    function renderTemporalChart(sta,swi,col,tSc){if(charts.temporal)charts.temporal.destroy();const len=Math.min(sta.length,swi.length),l=Array.from({length:len},(_,i)=>i+1),lm=tSc||getScaleLimits([...sta,...swi]);charts.temporal=new Chart(document.getElementById('temporalChart'),{type:'line',data:{labels:l,datasets:[{label:'Stance',data:sta.slice(0,len),borderColor:col.stanceL,backgroundColor:col.stanceL,tension:0.2,pointRadius:3},{label:'Swing',data:swi.slice(0,len),borderColor:col.swingL,backgroundColor:col.swingL,tension:0.2,pointRadius:3}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{min:lm.min,max:lm.max}}}});}
+    function renderTables(st,isS){const d=isS?1:2,row=(l,s)=>`<tr class="hover:bg-slate-50"><td class="font-medium text-slate-700">${l}</td><td class="font-bold">${s.mean.toFixed(d)}</td><td>${s.sd.toFixed(2)}</td><td class="text-blue-600 font-bold">${s.cov.toFixed(1)}%</td><td class="text-[10px] text-slate-500 whitespace-nowrap">${s.ciLow.toFixed(d)} - ${s.ciHigh.toFixed(d)}</td></tr>`;if(isS)document.getElementById('spatialStatsBody').innerHTML=row('L Step',st.sLeft)+row('R Step',st.sRight)+row('Stride',st.sStride);else document.getElementById('temporalStatsBody').innerHTML=row('Stance',st.tStance)+row('Swing',st.tSwing);}
+    function renderRawTable(sp){const b=document.getElementById('rawTableBody');b.innerHTML="";const m=Math.max(sp.leftStep.length,sp.rightStep.length,sp.stride.length);for(let i=0;i<m;i++)b.innerHTML+=`<tr class="hover:bg-slate-50 border-b border-slate-100"><td class="text-slate-500">${i+1}</td><td style="color:${SPATIAL_COLORS.L}" class="font-medium">${sp.leftStep[i]||"-"}</td><td style="color:${SPATIAL_COLORS.R}" class="font-medium">${sp.rightStep[i]||"-"}</td><td style="color:${SPATIAL_COLORS.Stride}" class="font-medium">${sp.stride[i]||"-"}</td></tr>`;}
+    function renderPhaseTable(ph,ev){const b=document.getElementById('phaseTableBody');b.innerHTML="";const ren=(l,pl,cl)=>{pl.forEach(p=>{const stP=p.cycle?((p.duration/p.cycle)*100).toFixed(0)+"%":"-";b.innerHTML+=`<tr class="hover:bg-slate-50 border-b border-slate-100"><td class="font-bold ${cl}">${l} ${p.type}</td><td>${p.type==='stance'?p.duration.toFixed(2):'-'}</td><td>${p.type==='swing'?p.duration.toFixed(2):'-'}</td><td class="text-amber-600 font-bold">${p.type==='stance'?stP:'-'}</td><td class="text-blue-600 font-bold">${p.type==='swing'?stP:'-'}</td></tr>`;});};ren('L',ph.L,'text-green-600');ren('R',ph.R,'text-red-600');}
+    function renderLogic(s){const d=Math.abs(calculateStats(s.leftStep).mean-calculateStats(s.rightStep).mean);document.getElementById('logicAlerts').innerHTML=d>5?`<div class="p-3 bg-red-100 border-l-4 border-red-500 text-red-700 rounded text-sm"><strong>⚠️ Asymmetry:</strong> L/R step difference: ${d.toFixed(1)}cm.</div>`:`<div class="p-3 bg-green-100 border-l-4 border-green-500 text-green-700 rounded text-sm">✅ Data consistent.</div>`;}
+    function loadDemoData(){document.getElementById('rawData').value=`Right\tLeft\tFrame\tInt\tTot\tTime\nIC\t\t100\t0\t0\t0.00\n\tTO\t136\t36\t36\t0.15\n\tIC\t244\t108\t144\t0.60\nTO\t\t280\t36\t180\t0.75\nIC\t\t388\t108\t288\t1.20\n\tTO\t424\t36\t324\t1.35\n\tIC\t532\t108\t432\t1.80\nTO\t\t568\t36\t468\t1.95\nIC\t\t676\t108\t576\t2.40\n\nSpatial Data\nRight IC\tLeft IC\tLeft Step Length\t72.5\t73.1\t72.8\nLeft IC\tRight IC\tRight Step Length\t71.8\t72.2\t72.0\nRight IC\tRight IC\tRight Stride Length\t144.3\t145.3\t144.8`;processData();}
+</script>
+</body>
+</html>
