@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gait Cycle Analyzer: Comparison Mode</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --secondary: #ec4899; /* Magenta */
+            --bg: #f8fafc;
+            --panel-bg: #ffffff;
+            --border: #cbd5e1;
+            --text-dark: #334155;
+            --text-light: #64748b;
+            --duration-bg: #fee2e2;
+            --duration-text: #ef4444;
+            --focus-glow: rgba(79, 70, 229, 0.5);
+            --active-bg: #fff9db; 
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background-color: var(--bg);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        /* --- Header --- */
+        .header {
+            background: var(--panel-bg);
+            padding: 10px 20px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            z-index: 100;
+            flex-shrink: 0;
+        }
+        .header h1 { margin: 0; font-size: 1.2rem; color: var(--text-dark); }
+        .controls { display: flex; gap: 15px; align-items: center; }
+        
+        .btn {
+            padding: 6px 12px;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+            background: white;
+            cursor: pointer;
+            font-size: 0.9rem;
+            color: var(--text-dark);
+            transition: all 0.2s;
+        }
+        .btn:hover { background: #f1f5f9; }
+        .btn-primary { background: var(--primary); color: white; border: none; }
+        .btn-primary:hover { background: #4338ca; }
+        .btn-help { background: #e0e7ff; color: var(--primary); border: none; font-weight: bold; border-radius: 50%; width: 30px; height: 30px; display:flex; align-items:center; justify-content:center;}
+        .btn-save { background: #10b981; color: white; border: none; font-weight: 600; }
+        .btn-save:hover { background: #059669; }
+
+        /* --- Modal (Instructions) --- */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6); z-index: 2000;
+            display: flex; align-items: center; justify-content: center;
+            backdrop-filter: blur(3px);
+            opacity: 0; pointer-events: none; transition: opacity 0.3s;
+        }
+        .modal-overlay.active { opacity: 1; pointer-events: auto; }
+        
+        .modal {
+            background: white; width: 90%; max-width: 600px;
+            padding: 30px; border-radius: 12px;
+            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+            position: relative;
+            max-height: 90vh; overflow-y: auto;
+        }
+        .modal h2 { margin-top: 0; color: var(--text-dark); }
+        .modal p { color: var(--text-dark); line-height: 1.5; margin-bottom: 10px;}
+        .modal ul { margin: 10px 0; padding-left: 20px; line-height: 1.5; color: var(--text-dark);}
+        .modal a { color: var(--primary); text-decoration: underline; word-break: break-all; }
+        .modal .credit { margin-top: 20px; padding-top: 15px; border-top: 1px solid #eee; font-size: 0.85rem; color: var(--text-light); font-style: italic; }
+        .close-modal { position: absolute; top: 15px; right: 15px; background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #999; }
+
+        /* --- Main Layout --- */
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* --- Left Panel (Workspace) --- */
+        .left-panel {
+            flex: 1.4; 
+            background: #eef2f6;
+            position: relative;
+            overflow: auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #workspace-container {
+            position: relative;
+            width: 850px;
+            height: 850px;
+            flex-shrink: 0;
+            transform-origin: center;
+            transform: scale(0.9);
+        }
+
+        /* Main Center Diagram */
+        #main-diagram-wrapper {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 400px; 
+            height: 400px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1;
+        }
+
+        #main-image {
+            max-width: 100%;
+            max-height: 100%;
+            display: block;
+            opacity: 0.9;
+        }
+
+        .upload-placeholder {
+            text-align: center; color: var(--text-light); font-size: 14px;
+            border: 2px dashed #cbd5e1; border-radius: 50%;
+            width: 100%; height: 100%;
+            display: flex; align-items: center; justify-content: center;
+            background: white; cursor: pointer;
+            transition: background 0.2s;
+        }
+        .upload-placeholder:hover { background: #f8fafc; border-color: var(--primary); color: var(--primary); }
+
+        /* --- Event Nodes --- */
+        .event-node {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+        }
+
+        /* Satellite Upload Circles */
+        .satellite-upload {
+            width: 120px;
+            height: 120px;
+            border: 3px solid var(--secondary);
+            border-radius: 50%;
+            background: white;
+            overflow: hidden;
+            cursor: pointer;
+            position: relative;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: border-color 0.2s;
+            margin-bottom: 5px;
+            display: flex; align-items: center; justify-content: center;
+            text-align: center;
+            padding: 4px;
+            box-sizing: border-box;
+        }
+        .satellite-upload:hover { border-color: #be185d; }
+        
+        .satellite-upload img { 
+            position: absolute; 
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%) scale(1); 
+            height: 120%; 
+            width: auto;
+            display: none; 
+            cursor: grab;
+            max-width: none; 
+            max-height: none;
+        }
+        
+        .satellite-upload img:active { cursor: grabbing; }
+        
+        .satellite-text {
+            font-size: 11px; font-weight: bold; color: var(--secondary);
+            line-height: 1.2; pointer-events: none;
+        }
+        .satellite-upload.has-image img { display: block; }
+        .satellite-upload.has-image .satellite-text { display: none; }
+
+        /* Input Boxes & Highlighting */
+        .input-box {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 6px 10px;
+            border-radius: 6px;
+            border: 2px solid #94a3b8;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-align: center;
+            min-width: 90px;
+            transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        /* ACTIVE INPUT HIGHLIGHT */
+        .input-box:focus-within {
+            border-color: var(--primary);
+            border-width: 2px;
+            background-color: var(--active-bg);
+            box-shadow: 0 5px 15px var(--focus-glow);
+            transform: scale(1.1);
+            z-index: 100;
+        }
+
+        .input-box label {
+            display: block; font-size: 11px; font-weight: 800; color: var(--text-dark); margin-bottom: 4px;
+        }
+
+        /* Input Wrapper */
+        .input-wrapper {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-bottom: 2px solid #cbd5e1;
+            padding-bottom: 2px;
+        }
+        .input-wrapper:focus-within { border-bottom-color: var(--primary); }
+        
+        .input-prefix {
+            font-size: 10px; color: #64748b; margin-right: 4px; font-weight: normal; white-space: nowrap;
+        }
+
+        .input-box input {
+            width: 45px; border: none; 
+            text-align: center; font-family: monospace; font-size: 13px; font-weight: bold;
+            background: transparent; outline: none; padding: 0; color: #333;
+        }
+        .input-box input::placeholder { color: #ccc; font-weight: normal; font-size: 10px;}
+        
+        .time-display { font-size: 11px; color: var(--secondary); font-weight: bold; margin-top: 2px; }
+        .dual-inputs { display: flex; gap: 12px; justify-content: center; }
+        .dual-wrapper { display: flex; flex-direction: column; align-items: center; }
+
+        /* Duration/Interval Tags */
+        .duration-tag {
+            position: absolute;
+            background: var(--duration-bg);
+            color: var(--duration-text);
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transform: translate(-50%, -50%);
+            z-index: 5;
+            white-space: nowrap;
+        }
+
+        /* Node Positioning */
+        #node-0 { top: 12%; left: 50%; flex-direction: column; }
+        #node-1 { top: 22%; left: 82%; flex-direction: column; } 
+        #node-2 { top: 58%; left: 88%; flex-direction: column-reverse; } 
+        #node-3 { top: 82%; left: 75%; flex-direction: column-reverse; }
+        #node-4 { top: 82%; left: 25%; flex-direction: column-reverse; }
+        #node-5 { top: 58%; left: 12%; flex-direction: column-reverse; }
+        #node-6 { top: 22%; left: 18%; flex-direction: column; }
+
+        /* Duration Tag Positions */
+        #dur-0 { top: 15%; left: 68%; } 
+        #dur-1 { top: 40%; left: 87%; } 
+        #dur-2 { top: 72%; left: 82%; } 
+        #dur-3 { top: 84%; left: 50%; } 
+        #dur-4 { top: 72%; left: 18%; } 
+        #dur-5 { top: 40%; left: 12%; } 
+        #dur-6 { top: 15%; left: 32%; } 
+
+        /* --- Right Panel --- */
+        .right-panel {
+            flex: 1;
+            background: var(--panel-bg);
+            border-left: 1px solid #cbd5e1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            position: relative;
+        }
+        
+        svg { width: 100%; height: 100%; max-width: 500px; }
+        .slice { stroke: #fff; stroke-width: 2px; transition: opacity 0.2s; }
+        .slice:hover { opacity: 0.8; }
+        .slice-text { font-size: 12px; fill: white; font-weight: bold; text-anchor: middle; pointer-events: none; }
+        .label-text { font-size: 13px; font-weight: 700; fill: #333; text-anchor: middle; }
+        .connector { stroke: #94a3b8; stroke-width: 1; stroke-dasharray: 3,3; }
+
+        /* Toast for Errors */
+        #toast {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: #ef4444; color: white; padding: 10px 20px; border-radius: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2); font-size: 0.9rem;
+            display: none; z-index: 3000;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="modal-overlay active" id="help-modal">
+        <div class="modal">
+            <button class="close-modal" onclick="closeHelpAndFocus()">×</button>
+            <h2>Gait Cycle Analysis Tool</h2>
+            
+            <p><strong>Step 1: Download & Load Diagram</strong><br>
+            Download the standard Gait Cycle image here: <br>
+            <a href="https://www.frugalprof.org/images/GaitCycleFigure2.1-small.jpg" download target="_blank">Download Figure 2.1 Image</a><br>
+            <em>(Source: Figure 2.1 from Whittle's Gait Analysis, 5th Edition)</em><br>
+            Then, click the center circle on the screen to upload it.</p>
+
+            <p><strong>Step 2: Load Your Event Images</strong><br>
+            Click the magenta circles surrounding the main diagram to upload <strong>your own images</strong> that correspond to each specific gait event (IC, OTO, HR, etc.) shown in the main Figure 2.1 diagram.</p>
+
+            <p><strong>Step 3: Enter Data</strong><br>
+            Start in the highlighted box at the top (First Frame of IC). Enter the <strong>Video Frame #</strong> for each event. Use <strong>Tab</strong> to move to the next event automatically.</p>
+
+            <p><strong>Step 4: Refine & Analyze</strong><br>
+            Verify the FPS (Default: 240). You can <strong>drag</strong> your small event images to center them, or <strong>scroll</strong> to zoom. The tool will calculate durations (red tags) and generate the Phase Plot.</p>
+
+            <p><strong>Step 5: Save</strong><br>
+            Use the <strong>"Save as JPG"</strong> button in the top bar to download a snapshot of your analysis.</p>
+
+            <div style="text-align: center; margin-top: 20px;">
+                <button class="btn btn-primary" onclick="closeHelpAndFocus()">Get Started</button>
+            </div>
+
+            <div class="credit">
+                Tool developed with credit to <strong>Professor Fedel</strong>.
+            </div>
+        </div>
+    </div>
+
+    <div id="toast">Storage Issue</div>
+
+    <div class="header">
+        <div style="display:flex; align-items:center; gap:15px;">
+            <h1>Gait Analysis</h1>
+            <button class="btn-help" onclick="document.getElementById('help-modal').classList.add('active')">?</button>
+            <button class="btn btn-save" onclick="saveScreen()">Save as JPG</button>
+            <button class="file-btn" onclick="document.getElementById('main-upload').click()">(Reset Main Diagram)</button>
+        </div>
+        <div class="controls">
+            <div class="control-group" style="display:flex; align-items:center;">
+                <label style="color:#334155;">FPS:</label>
+                <input type="number" id="fps" value="240">
+            </div>
+            <div id="summary-panel" style="font-size: 0.9rem; font-weight: bold; color: var(--primary); display:none;">
+                Total: <span id="total-time">0.00</span>s
+            </div>
+        </div>
+    </div>
+
+    <div class="main-container">
+
+        <input type="file" id="main-upload" accept="image/*" style="display:none" onchange="handleImageUpload(this, 'main')">
+        <input type="file" id="sat-upload" accept="image/*" style="display:none" onchange="handleImageUpload(this, 'sat')">
+
+        <div class="left-panel">
+            <div id="workspace-container">
+                
+                <div id="main-diagram-wrapper">
+                    <div class="upload-placeholder" id="main-placeholder" onclick="document.getElementById('main-upload').click()">
+                        <strong>Click to Load<br>Main Diagram</strong>
+                    </div>
+                    <img id="main-image" src="" style="display:none;">
+                </div>
+
+                <div class="event-node" id="node-0">
+                    <div class="satellite-upload" onmousedown="initDrag(event, 0)" onwheel="handleZoom(event, 0)" onclick="handleClick(event, 0)">
+                        <span class="satellite-text">Click to<br>Add Image</span>
+                        <img id="img-0">
+                    </div>
+                    <div class="input-box">
+                        <label>IC</label>
+                        <div class="dual-inputs">
+                            <div class="dual-wrapper">
+                                <div class="input-wrapper">
+                                    <span class="input-prefix">Frame:</span>
+                                    <input type="number" class="frame-in" data-idx="7" tabindex="8">
+                                </div>
+                                <span style="font-size:9px; color:#999;">Last</span>
+                            </div>
+                            <div class="dual-wrapper">
+                                <div class="input-wrapper">
+                                    <span class="input-prefix">Frame:</span>
+                                    <input type="number" class="frame-in" data-idx="0" tabindex="1" autofocus>
+                                </div>
+                                <span style="font-size:9px; color:#999;">First</span>
+                            </div>
+                        </div>
+                        <div class="time-display" id="t-0">0.00s</div>
+                    </div>
+                </div>
+
+                <div class="event-node" id="node-1">
+                    <div class="satellite-upload" onmousedown="initDrag(event, 1)" onwheel="handleZoom(event, 1)" onclick="handleClick(event, 1)">
+                        <span class="satellite-text">Click to<br>Add Image</span>
+                        <img id="img-1">
+                    </div>
+                    <div class="input-box">
+                        <label>OTO</label>
+                        <div class="input-wrapper">
+                            <span class="input-prefix">Frame:</span>
+                            <input type="number" class="frame-in" data-idx="1" tabindex="2">
+                        </div>
+                        <div class="time-display" id="t-1">---</div>
+                    </div>
+                </div>
+
+                <div class="event-node" id="node-2">
+                    <div class="input-box">
+                        <label>HR</label>
+                        <div class="input-wrapper">
+                            <span class="input-prefix">Frame:</span>
+                            <input type="number" class="frame-in" data-idx="2" tabindex="3">
+                        </div>
+                        <div class="time-display" id="t-2">---</div>
+                    </div>
+                    <div class="satellite-upload" onmousedown="initDrag(event, 2)" onwheel="handleZoom(event, 2)" onclick="handleClick(event, 2)">
+                        <span class="satellite-text">Click to<br>Add Image</span>
+                        <img id="img-2">
+                    </div>
+                </div>
+
+                <div class="event-node" id="node-3">
+                    <div class="input-box">
+                        <label>OIC</label>
+                        <div class="input-wrapper">
+                            <span class="input-prefix">Frame:</span>
+                            <input type="number" class="frame-in" data-idx="3" tabindex="4">
+                        </div>
+                        <div class="time-display" id="t-3">---</div>
+                    </div>
+                    <div class="satellite-upload" onmousedown="initDrag(event, 3)" onwheel="handleZoom(event, 3)" onclick="handleClick(event, 3)">
+                        <span class="satellite-text">Click to<br>Add Image</span>
+                        <img id="img-3">
+                    </div>
+                </div>
+
+                <div class="event-node" id="node-4">
+                    <div class="input-box">
+                        <label>TO</label>
+                        <div class="input-wrapper">
+                            <span class="input-prefix">Frame:</span>
+                            <input type="number" class="frame-in" data-idx="4" tabindex="5">
+                        </div>
+                        <div class="time-display" id="t-4">---</div>
+                    </div>
+                    <div class="satellite-upload" onmousedown="initDrag(event, 4)" onwheel="handleZoom(event, 4)" onclick="handleClick(event, 4)">
+                        <span class="satellite-text">Click to<br>Add Image</span>
+                        <img id="img-4">
+                    </div>
+                </div>
+
+                <div class="event-node" id="node-5">
+                    <div class="input-box">
+                        <label>FA</label>
+                        <div class="input-wrapper">
+                            <span class="input-prefix">Frame:</span>
+                            <input type="number" class="frame-in" data-idx="5" tabindex="6">
+                        </div>
+                        <div class="time-display" id="t-5">---</div>
+                    </div>
+                    <div class="satellite-upload" onmousedown="initDrag(event, 5)" onwheel="handleZoom(event, 5)" onclick="handleClick(event, 5)">
+                        <span class="satellite-text">Click to<br>Add Image</span>
+                        <img id="img-5">
+                    </div>
+                </div>
+
+                <div class="event-node" id="node-6">
+                    <div class="satellite-upload" onmousedown="initDrag(event, 6)" onwheel="handleZoom(event, 6)" onclick="handleClick(event, 6)">
+                        <span class="satellite-text">Click to<br>Add Image</span>
+                        <img id="img-6">
+                    </div>
+                    <div class="input-box">
+                        <label>TV</label>
+                        <div class="input-wrapper">
+                            <span class="input-prefix">Frame:</span>
+                            <input type="number" class="frame-in" data-idx="6" tabindex="7">
+                        </div>
+                        <div class="time-display" id="t-6">---</div>
+                    </div>
+                </div>
+
+                <div class="duration-tag" id="dur-0">---</div>
+                <div class="duration-tag" id="dur-1">---</div>
+                <div class="duration-tag" id="dur-2">---</div>
+                <div class="duration-tag" id="dur-3">---</div>
+                <div class="duration-tag" id="dur-4">---</div>
+                <div class="duration-tag" id="dur-5">---</div>
+                <div class="duration-tag" id="dur-6">---</div>
+
+            </div>
+        </div>
+
+        <div class="right-panel">
+            <h3 style="color:#334155; margin-bottom:10px;">Proportional Phase Plot</h3>
+            <svg id="pie-chart" viewBox="0 0 400 400">
+                <circle cx="200" cy="200" r="140" fill="none" stroke="#e2e8f0" stroke-width="40"></circle>
+                <text x="200" y="200" text-anchor="middle" fill="#94a3b8" font-size="14" dy="5">Enter Data to Generate</text>
+            </svg>
+        </div>
+
+    </div>
+
+    <script>
+        // --- Variables & Config ---
+        const eventLabels = ["IC", "OTO", "HR", "OIC", "TO", "FA", "TV"];
+        const colors = ["#6366f1", "#8b5cf6", "#d946ef", "#ec4899", "#f43f5e", "#f97316", "#3b82f6"];
+        let activeSatIndex = -1;
+
+        const inputs = document.querySelectorAll('.frame-in');
+        const fpsInput = document.getElementById('fps');
+        const totalTimeSpan = document.getElementById('total-time');
+        const summaryPanel = document.getElementById('summary-panel');
+        const pieSvg = document.getElementById('pie-chart');
+
+        // --- 1. UI Helpers & Focus Logic ---
+        function closeHelpAndFocus() {
+            document.getElementById('help-modal').classList.remove('active');
+            const firstInput = document.querySelector('input[data-idx="0"]');
+            if(firstInput) firstInput.focus();
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.style.display = 'block';
+            setTimeout(() => t.style.display = 'none', 4000);
+        }
+
+        // --- 2. Screenshot Logic ---
+        function saveScreen() {
+            const btn = event.target;
+            const originalText = btn.innerText;
+            btn.innerText = "Saving...";
+            html2canvas(document.body).then(canvas => {
+                const link = document.createElement('a');
+                link.download = 'gait-analysis.jpg';
+                link.href = canvas.toDataURL('image/jpeg', 0.9);
+                link.click();
+                btn.innerText = originalText;
+            }).catch(err => {
+                console.error(err);
+                alert("Error saving screen: " + err);
+                btn.innerText = originalText;
+            });
+        }
+
+        // --- 3. Image Handling & Draggable Logic ---
+        const MAX_IMG_DIM = 1000; 
+        const JPEG_QUALITY = 0.7; 
+
+        // Drag Variables
+        let isDragging = false;
+        let startX, startY;
+        let currentDragImg = null;
+        let didDrag = false; 
+
+        function handleClick(e, index) {
+            if (didDrag) return; 
+            triggerSatUpload(index);
+        }
+
+        function triggerSatUpload(index) {
+            activeSatIndex = index;
+            const uploader = document.getElementById('sat-upload');
+            uploader.value = ''; 
+            uploader.click();
+        }
+
+        function initDrag(e, index) {
+            const img = document.getElementById(`img-${index}`);
+            if (!img || img.style.display === 'none') return;
+            
+            e.preventDefault();
+            isDragging = true;
+            didDrag = false;
+            currentDragImg = img;
+            startX = e.clientX;
+            startY = e.clientY;
+
+            if (!currentDragImg.dataset.x) currentDragImg.dataset.x = "-50";
+            if (!currentDragImg.dataset.y) currentDragImg.dataset.y = "-50";
+
+            document.addEventListener('mousemove', onDrag);
+            document.addEventListener('mouseup', stopDrag);
+        }
+
+        function onDrag(e) {
+            if (!isDragging) return;
+            didDrag = true;
+            
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+
+            // Convert pixels to percent relative to container (120px)
+            const percentX = (dx / 120) * 100;
+            const percentY = (dy / 120) * 100;
+
+            let curX = parseFloat(currentDragImg.dataset.x);
+            let curY = parseFloat(currentDragImg.dataset.y);
+            let curScale = parseFloat(currentDragImg.dataset.scale || 1);
+
+            let newX = curX + percentX;
+            let newY = curY + percentY;
+
+            currentDragImg.style.transform = `translate(${newX}%, ${newY}%) scale(${curScale})`;
+            
+            startX = e.clientX;
+            startY = e.clientY;
+            
+            currentDragImg.dataset.x = newX;
+            currentDragImg.dataset.y = newY;
+        }
+
+        function stopDrag() {
+            isDragging = false;
+            document.removeEventListener('mousemove', onDrag);
+            document.removeEventListener('mouseup', stopDrag);
+            currentDragImg = null;
+        }
+
+        function handleZoom(e, index) {
+            const img = document.getElementById(`img-${index}`);
+            if (!img || img.style.display === 'none') return;
+            
+            e.preventDefault();
+            
+            let scale = parseFloat(img.dataset.scale || 1);
+            const delta = e.deltaY > 0 ? -0.1 : 0.1;
+            
+            scale += delta;
+            if (scale < 0.5) scale = 0.5; 
+            if (scale > 5) scale = 5;
+
+            img.dataset.scale = scale;
+            
+            let curX = parseFloat(img.dataset.x || -50);
+            let curY = parseFloat(img.dataset.y || -50);
+
+            img.style.transform = `translate(${curX}%, ${curY}%) scale(${scale})`;
+        }
+
+
+        // Image Loading
+        function processImage(file, callback) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    let width = img.width;
+                    let height = img.height;
+                    
+                    if (width > height) {
+                        if (width > MAX_IMG_DIM) {
+                            height *= MAX_IMG_DIM / width;
+                            width = MAX_IMG_DIM;
+                        }
+                    } else {
+                        if (height > MAX_IMG_DIM) {
+                            width *= MAX_IMG_DIM / height;
+                            height = MAX_IMG_DIM;
+                        }
+                    }
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    const dataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
+                    callback(dataUrl);
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function handleImageUpload(input, type) {
+            if (!input.files || !input.files[0]) return;
+            processImage(input.files[0], (dataUrl) => {
+                try {
+                    if (type === 'main') {
+                        localStorage.setItem('gait_main_bg', dataUrl);
+                        displayMainImage(dataUrl);
+                    } else if (type === 'sat') {
+                        if (activeSatIndex !== -1) {
+                            const imgEl = document.getElementById(`img-${activeSatIndex}`);
+                            imgEl.src = dataUrl;
+                            imgEl.parentElement.classList.add('has-image');
+                            // Reset transform
+                            imgEl.dataset.x = "-50";
+                            imgEl.dataset.y = "-50";
+                            imgEl.dataset.scale = "1";
+                            imgEl.style.transform = "translate(-50%, -50%) scale(1)";
+                        }
+                    }
+                } catch (err) {
+                    showToast("Storage full. Image loaded but won't save.");
+                    if (type === 'main') displayMainImage(dataUrl);
+                    if (type === 'sat' && activeSatIndex !== -1) {
+                        const imgEl = document.getElementById(`img-${activeSatIndex}`);
+                        imgEl.src = dataUrl;
+                        imgEl.parentElement.classList.add('has-image');
+                    }
+                }
+            });
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedMain = localStorage.getItem('gait_main_bg');
+            if(savedMain) displayMainImage(savedMain);
+        });
+
+        function displayMainImage(src) {
+            document.getElementById('main-placeholder').style.display = 'none';
+            const img = document.getElementById('main-image');
+            img.src = src;
+            img.style.display = 'block';
+        }
+
+        // --- 4. Calculation Logic ---
+        function calculate() {
+            const fps = parseFloat(fpsInput.value) || 240;
+            const frames = new Array(8).fill(null);
+
+            inputs.forEach(inp => {
+                const idx = parseInt(inp.getAttribute('data-idx'));
+                if(inp.value !== '') frames[idx] = parseFloat(inp.value);
+            });
+
+            // 1. Time Displays
+            for(let i=0; i<7; i++) {
+                const tEl = document.getElementById(`t-${i}`);
+                if(frames[i] !== null) tEl.innerText = (frames[i]/fps).toFixed(3) + 's';
+                else tEl.innerText = '---';
+            }
+
+            // 2. Total Time
+            let totalFrames = 0;
+            let hasTotal = (frames[0] !== null && frames[7] !== null);
+            if(hasTotal) {
+                totalFrames = frames[7] - frames[0];
+                totalTimeSpan.innerText = (totalFrames/fps).toFixed(4);
+                summaryPanel.style.display = 'block';
+            } else {
+                summaryPanel.style.display = 'none';
+            }
+
+            // 3. Segments & Intervals
+            let segments = [];
+            for(let i=0; i<7; i++) {
+                let start = frames[i];
+                let end = frames[i+1];
+                const tag = document.getElementById(`dur-${i}`);
+
+                if(start !== null && end !== null) {
+                    let diff = end - start;
+                    let dur = diff / fps;
+                    segments.push({ label: eventLabels[i], val: diff, dur: dur });
+                    tag.innerText = dur.toFixed(3) + 's';
+                    tag.style.opacity = 1;
+                } else {
+                    segments.push(null);
+                    tag.innerText = '---';
+                    tag.style.opacity = 0.5;
+                }
+            }
+
+            drawPie(segments, totalFrames, hasTotal);
+        }
+
+        // --- 5. Drawing the Pie Chart ---
+        function polarToCartesian(cx, cy, r, deg) {
+            const rad = (deg - 90) * Math.PI / 180.0;
+            return { x: cx + (r * Math.cos(rad)), y: cy + (r * Math.sin(rad)) };
+        }
+
+        function describeArc(x, y, r, startAngle, endAngle) {
+            const start = polarToCartesian(x, y, r, endAngle);
+            const end = polarToCartesian(x, y, r, startAngle);
+            const largeArc = endAngle - startAngle <= 180 ? "0" : "1";
+            return [
+                "M", start.x, start.y, 
+                "A", r, r, 0, largeArc, 0, end.x, end.y,
+                "L", x, y,
+                "L", start.x, start.y
+            ].join(" ");
+        }
+
+        function drawPie(segments, totalFrames, isComplete) {
+            pieSvg.innerHTML = ''; 
+            
+            if(!isComplete || totalFrames <= 0) {
+                 pieSvg.innerHTML = `<circle cx="200" cy="200" r="140" fill="none" stroke="#e2e8f0" stroke-width="40"></circle>
+                                     <text x="200" y="200" text-anchor="middle" fill="#94a3b8" font-size="14" dy="5">Enter Start & End Frames</text>`;
+                 return;
+            }
+
+            let currentAngle = 0;
+            const cx=200, cy=200, r=140, labelR=170;
+
+            segments.forEach((seg, i) => {
+                if(!seg) return;
+                
+                const fraction = seg.val / totalFrames;
+                const angleSpan = fraction * 360;
+                const endAngle = currentAngle + angleSpan;
+
+                // Slice
+                const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                path.setAttribute("d", describeArc(cx, cy, r, currentAngle, endAngle));
+                path.setAttribute("fill", colors[i]);
+                path.setAttribute("class", "slice");
+                path.setAttribute("stroke", "white");
+                pieSvg.appendChild(path);
+
+                // Time Text
+                const midAngle = currentAngle + (angleSpan/2);
+                const textPos = polarToCartesian(cx, cy, r*0.75, midAngle);
+                const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                text.setAttribute("x", textPos.x);
+                text.setAttribute("y", textPos.y+4);
+                text.setAttribute("class", "slice-text");
+                text.textContent = seg.dur.toFixed(3) + "s";
+                pieSvg.appendChild(text);
+
+                // Label
+                const labelPos = polarToCartesian(cx, cy, labelR, currentAngle);
+                const lineStart = polarToCartesian(cx, cy, r+2, currentAngle);
+                const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                line.setAttribute("x1", lineStart.x); line.setAttribute("y1", lineStart.y);
+                line.setAttribute("x2", labelPos.x); line.setAttribute("y2", labelPos.y);
+                line.setAttribute("class", "connector");
+                pieSvg.appendChild(line);
+
+                const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                label.setAttribute("x", labelPos.x);
+                label.setAttribute("y", labelPos.y);
+                label.setAttribute("class", "label-text");
+                
+                if(currentAngle === 0) {
+                    label.setAttribute("text-anchor", "middle"); label.setAttribute("dy", -5);
+                } else if(currentAngle > 0 && currentAngle < 180) {
+                    label.setAttribute("text-anchor", "start"); label.setAttribute("dx", 5); label.setAttribute("dy", 5);
+                } else {
+                    label.setAttribute("text-anchor", "end"); label.setAttribute("dx", -5); label.setAttribute("dy", 5);
+                }
+                
+                label.textContent = seg.label;
+                pieSvg.appendChild(label);
+
+                currentAngle += angleSpan;
+            });
+        }
+
+        // Listeners
+        inputs.forEach(i => i.addEventListener('input', calculate));
+        fpsInput.addEventListener('input', calculate);
+
+    </script>
+</body>
+</html>
