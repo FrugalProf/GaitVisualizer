@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gait Analyzer - Centroid Snap Build</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; color: #1c1e21; overflow: hidden; }
+        .container { max-width: 100%; height: 95vh; display: flex; flex-direction: column; }
+        .controls { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); margin-bottom: 15px; display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end; flex-shrink: 0; }
+        .canvas-wrapper { position: relative; background: #ddd; border-radius: 8px; box-shadow: inset 0 2px 10px rgba(0,0,0,0.1); flex-grow: 1; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+        canvas { background: white; display: block; cursor: crosshair; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+        .color-preview { width: 30px; height: 30px; border: 2px solid #ddd; border-radius: 4px; }
+        label { font-weight: bold; font-size: 0.7rem; text-transform: uppercase; color: #606770; display: block; margin-bottom: 3px; }
+        .btn { padding: 8px 12px; cursor: pointer; background: #0084ff; color: white; border: none; border-radius: 6px; font-weight: 600; }
+        .btn-mode { background: #673ab7; min-width: 160px; }
+        .btn-undo { background: #f44336; }
+        .btn-download { background: #28a745; }
+        .instruction-box { background: #fff3cd; border-left: 5px solid #ffc107; padding: 10px; margin-bottom: 10px; font-weight: bold; font-size: 0.9rem; flex-shrink: 0; }
+    </style>
+</head>
+<body tabindex="0">
+
+<div class="container">
+    <div id="instruction" class="instruction-box">Upload image OR press CTRL+V to paste.</div>
+    
+    <div class="controls">
+        <div>
+            <label>1. Source</label>
+            <input type="file" id="imageLoader" accept="image/*">
+        </div>
+        <div>
+            <input type="checkbox" id="splitMode"> <label style="display:inline; font-weight: bold; font-size: 0.7rem;">SPLIT MODE</label>
+        </div>
+        <div>
+            <label>Active Mode</label>
+            <button class="btn btn-mode" id="modeBtn" onclick="cycleMode()">Mode: Adjust Zones</button>
+        </div>
+        <div>
+            <label>Color (Auto)</label>
+            <div id="activeColor" class="color-preview" style="background: #000;"></div>
+        </div>
+        <div>
+            <label>Tolerance</label>
+            <input type="range" id="tolerance" min="2" max="75" value="22">
+        </div>
+        <button class="btn" id="actionBtn" onclick="processAction()">Connect Dots</button>
+        <button class="btn btn-undo" onclick="undoLast()">Undo Last</button>
+        <button class="btn btn-download" onclick="downloadImage()">Download JPG</button>
+    </div>
+
+    <div class="canvas-wrapper" id="wrapper">
+        <canvas id="mainCanvas"></canvas>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('mainCanvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const instruction = document.getElementById('instruction');
+    const modeBtn = document.getElementById('modeBtn');
+    const actionBtn = document.getElementById('actionBtn');
+    
+    let originalImg = null;
+    let processedLines = []; 
+    let manualDots = []; 
+    let selectedRGB = [0, 0, 0];
+    let boundaries = [0, 0];
+    let topMoved = false, bottomMoved = false, draggingIdx = -1;
+    let flashOpacity = 1;
+    let currentMode = 'ZONES'; 
+
+    document.getElementById('imageLoader').addEventListener('change', e => handleImageSource(e.target.files[0]));
+    window.addEventListener('paste', e => {
+        const item = e.clipboardData.items[0];
+        if (item && item.type.indexOf('image') !== -1) handleImageSource(item.getAsFile());
+    });
+
+    function cycleMode() {
+        if (currentMode === 'ZONES') {
+            currentMode = 'COLOR';
+            modeBtn.innerText = "Mode: Color Pick";
+            modeBtn.style.background = "#0084ff";
+            actionBtn.innerText = "Connect Dots";
+        } else if (currentMode === 'COLOR') {
+            currentMode = 'MANUAL';
+            modeBtn.innerText = "Mode: Manual Click";
+            modeBtn.style.background = "#ff5722";
+            actionBtn.innerText = "Finalize Manual Set";
+        } else {
+            currentMode = 'ZONES';
+            modeBtn.innerText = "Mode: Adjust Zones";
+            modeBtn.style.background = "#673ab7";
+            actionBtn.innerText = "Connect Dots";
+        }
+        updateInstruction();
+        drawState();
+    }
+
+    function handleImageSource(file) {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            originalImg = new Image();
+            originalImg.onload = () => {
+                const wrapper = document.getElementById('wrapper');
+                const pad = 40;
+                let scale = Math.min((wrapper.clientWidth - pad) / originalImg.width, (wrapper.clientHeight - pad) / originalImg.height, 1);
+                canvas.width = originalImg.width * scale;
+                canvas.height = originalImg.height * scale;
+                boundaries = [canvas.height * 0.33, canvas.height * 0.66];
+                topMoved = bottomMoved = false;
+                currentMode = 'ZONES';
+                modeBtn.innerText = "Mode: Adjust Zones";
+                modeBtn.style.background = "#673ab7";
+                processedLines = []; 
+                manualDots = [];
+                updateInstruction();
+                drawState();
+            };
+            originalImg.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    setInterval(() => { flashOpacity = (flashOpacity === 1) ? 0.2 : 1; drawState(); }, 500);
+
+    function updateInstruction() {
+        if (!originalImg) {
+            instruction.innerHTML = "Upload image OR press CTRL+V to paste.";
+            return;
+        }
+        switch(currentMode) {
+            case 'ZONES': instruction.innerHTML = "ADJUST ZONES: Drag red lines. Switch mode when finished."; break;
+            case 'COLOR': instruction.innerHTML = "COLOR PICK: Click a colored dot, then click 'Connect Dots'."; break;
+            case 'MANUAL': instruction.innerHTML = "MANUAL CLICK: System will snap to the center of the dot color you click."; break;
+        }
+    }
+
+    function drawState() {
+        if (!originalImg) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(originalImg, 0, 0, canvas.width, canvas.height);
+        
+        processedLines.forEach(lineSet => {
+            ctx.lineWidth = 3; ctx.strokeStyle = lineSet.color;
+            ctx.beginPath(); ctx.moveTo(lineSet.points[0].x, lineSet.points[0].y);
+            for (let i = 1; i < lineSet.points.length; i++) ctx.lineTo(lineSet.points[i].x, lineSet.points[i].y);
+            ctx.stroke();
+            lineSet.points.forEach(d => {
+                ctx.fillStyle = "white"; ctx.strokeStyle = "black"; ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.arc(d.x, d.y, 3, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+            });
+        });
+
+        manualDots.forEach(d => {
+            ctx.fillStyle = "cyan";
+            ctx.strokeStyle = "black";
+            ctx.beginPath(); ctx.arc(d.x, d.y, 4, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+        });
+
+        boundaries.forEach((y, i) => {
+            ctx.setLineDash([10, 5]); ctx.lineWidth = 3;
+            let target = (currentMode === 'ZONES') && ((i === 0 && !topMoved) || (i === 1 && topMoved && !bottomMoved));
+            ctx.strokeStyle = target ? `rgba(255, 0, 0, ${flashOpacity})` : "rgba(255, 0, 0, 0.4)";
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+        });
+        ctx.setLineDash([]);
+    }
+
+    canvas.addEventListener('mousedown', (e) => {
+        if (!originalImg) return;
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+
+        if (currentMode === 'ZONES') {
+            const idx = boundaries.findIndex(y => Math.abs(my - y) < 20);
+            if (idx !== -1) draggingIdx = idx;
+        } else if (currentMode === 'MANUAL') {
+            const snappedPoint = getCentroidSnap(mx, my);
+            manualDots.push(snappedPoint);
+            drawState();
+        } else {
+            const pixel = ctx.getImageData(mx, my, 1, 1).data;
+            selectedRGB = [pixel[0], pixel[1], pixel[2]];
+            document.getElementById('activeColor').style.background = `rgb(${pixel[0]},${pixel[1]},${pixel[2]})`;
+        }
+    });
+
+    // SNAPPING LOGIC
+    function getCentroidSnap(mx, my) {
+        const radius = 8; // Look in an 8px radius around click
+        const imgData = ctx.getImageData(mx - radius, my - radius, radius * 2, radius * 2);
+        const data = imgData.data;
+        const centerIdx = (radius * (radius * 2) + radius) * 4;
+        const targetR = data[centerIdx], targetG = data[centerIdx+1], targetB = data[centerIdx+2];
+        
+        let sumX = 0, sumY = 0, count = 0;
+        const tol = 30; // Color similarity tolerance for snapping
+
+        for (let y = 0; y < radius * 2; y++) {
+            for (let x = 0; x < radius * 2; x++) {
+                const i = (y * radius * 2 + x) * 4;
+                const d = Math.sqrt(Math.pow(data[i]-targetR,2)+Math.pow(data[i+1]-targetG,2)+Math.pow(data[i+2]-targetB,2));
+                if (d < tol) {
+                    sumX += x; sumY += y; count++;
+                }
+            }
+        }
+
+        if (count > 0) {
+            return {
+                x: (mx - radius) + (sumX / count),
+                y: (my - radius) + (sumY / count),
+                color: `rgb(${targetR},${targetG},${targetB})`
+            };
+        }
+        return { x: mx, y: my, color: "black" };
+    }
+
+    window.addEventListener('mousemove', (e) => {
+        if (draggingIdx !== -1) {
+            const rect = canvas.getBoundingClientRect();
+            boundaries[draggingIdx] = e.clientY - rect.top;
+            if (draggingIdx === 0) topMoved = true;
+            if (draggingIdx === 1) bottomMoved = true;
+            updateInstruction();
+        }
+    });
+
+    window.addEventListener('mouseup', () => draggingIdx = -1);
+
+    function undoLast() {
+        if (currentMode === 'MANUAL' && manualDots.length > 0) {
+            manualDots.pop();
+        } else {
+            processedLines.pop();
+        }
+        drawState();
+    }
+
+    function processAction() {
+        if (currentMode === 'COLOR') {
+            const data = ctx.getImageData(0,0,canvas.width,canvas.height).data;
+            const tol = parseInt(document.getElementById('tolerance').value);
+            const pts = [];
+            for(let i=0; i<data.length; i+=4) {
+                if(Math.sqrt(Math.pow(data[i]-selectedRGB[0],2)+Math.pow(data[i+1]-selectedRGB[1],2)+Math.pow(data[i+2]-selectedRGB[2],2)) < tol) {
+                    pts.push({x: (i/4)%canvas.width, y: Math.floor((i/4)/canvas.width)});
+                }
+            }
+            const clustered = clusterPoints(pts, 8);
+            finalizePoints(clustered, `rgb(${selectedRGB[0]},${selectedRGB[1]},${selectedRGB[2]})`);
+        } else if (currentMode === 'MANUAL') {
+            if (manualDots.length < 2) return;
+            // Use the snapped color of the first dot for the line color
+            const setLineColor = manualDots[0].color || "black";
+            finalizePoints(manualDots, setLineColor);
+            manualDots = [];
+        }
+    }
+
+    function finalizePoints(pts, color) {
+        const splitX = document.getElementById('splitMode').checked ? canvas.width / 2 : canvas.width + 1;
+        const bins = [[], [], [], [], [], []];
+
+        pts.forEach(p => {
+            let v = p.y < boundaries[0] ? 0 : (p.y < boundaries[1] ? 1 : 2);
+            let h = p.x < splitX ? 0 : 1;
+            bins[v + (h * 3)].push(p);
+        });
+
+        bins.forEach(dots => {
+            dots.sort((a, b) => a.x - b.x);
+            if (dots.length > 1) processedLines.push({ color, points: dots });
+        });
+        drawState();
+    }
+
+    function clusterPoints(pixels, radius) {
+        const clusters = [];
+        const used = new Uint8Array(pixels.length);
+        for (let i = 0; i < pixels.length; i++) {
+            if (used[i]) continue;
+            let sumX = 0, sumY = 0, count = 0, q = [pixels[i]];
+            used[i] = 1;
+            while (q.length > 0) {
+                const p = q.shift(); sumX += p.x; sumY += p.y; count++;
+                for (let j = i + 1; j < pixels.length; j++) {
+                    if (!used[j] && Math.abs(pixels[j].x - p.x) < radius && Math.abs(pixels[j].y - p.y) < radius) {
+                        used[j] = 1; q.push(pixels[j]);
+                    }
+                }
+            }
+            clusters.push({ x: sumX / count, y: sumY / count });
+        }
+        return clusters;
+    }
+
+    function downloadImage() {
+        const link = document.createElement('a');
+        link.download = 'gait_precision_chart.jpg';
+        link.href = canvas.toDataURL('image/jpeg', 0.95);
+        link.click();
+    }
+</script>
+</body>
+</html>
