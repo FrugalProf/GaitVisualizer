@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Gait Lab Professional</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #121212; color: #eee; margin: 0; display: flex; overflow: hidden; }
+        .workspace { flex: 0 0 75vw; height: 100vh; display: flex; flex-direction: column; background: #000; border-right: 2px solid #333; }
+        #container { position: relative; flex-grow: 1; width: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+        video { width: 100%; height: 100%; object-fit: contain; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; cursor: crosshair; }
+        .video-nav { background: #1a1a1a; padding: 15px; display: flex; gap: 8px; justify-content: center; border-top: 1px solid #333; align-items: center;}
+        .sidebar { flex-grow: 1; padding: 20px; background: #1e1e1e; overflow-y: auto; }
+        .control-group { margin-bottom: 20px; background: #2a2a2a; padding: 15px; border-radius: 8px; }
+        h3 { margin-top: 0; font-size: 1.1rem; color: #4CAF50; border-bottom: 1px solid #444; padding-bottom: 5px; }
+        button { padding: 10px 14px; cursor: pointer; background: #444; color: white; border: none; border-radius: 4px; transition: 0.2s; font-weight: bold; font-size: 1rem; }
+        button.selected { background: #28a745 !important; } 
+        button.active-mode { border: 2px solid #ffc107; }
+        .stats-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin-top: 10px; }
+        .stats-table th, .stats-table td { border: 1px solid #444; padding: 6px; text-align: center; }
+        .r-row { color: #ff6b6b; } .l-row { color: #4CAF50; }
+        input[type="number"] { background: #111; color: #fff; border: 1px solid #444; padding: 5px; width: 60px; font-size: 1rem; }
+    </style>
+</head>
+<body>
+
+<div class="workspace">
+    <div id="container">
+        <video id="video" crossorigin="anonymous"></video>
+        <canvas id="canvas"></canvas>
+    </div>
+    <div class="video-nav">
+        <button onclick="changeFrame(-5)">-5f</button>
+        <button onclick="changeFrame(-1)">-1f</button>
+        <button onclick="togglePlay()" id="playBtn">PLAY</button>
+        <button onclick="changeFrame(1)">+1f</button>
+        <button onclick="changeFrame(5)">+5f</button>
+        <button onclick="toggleMute()" id="muteBtn">MUTE</button>
+        <button onclick="captureScreen()" style="background: #007bff; margin-left: 10px;">SAVE JPG</button>
+        <span style="margin-left: 15px; font-size: 1.1rem;">Time: <span id="timecode">0.00</span>s</span>
+    </div>
+</div>
+
+<div class="sidebar">
+    <div class="control-group">
+        <h3>1. Calibration</h3>
+        <input type="file" id="fileInput" accept="video/*" style="width: 100%; margin-bottom:15px;">
+        <button id="calBtn" onclick="startCalibrate()" style="width: 100%;">Set Shoe Size</button>
+        <div style="margin-top:10px;">FPS: <input type="number" id="fps" value="30"></div>
+    </div>
+
+    <div class="control-group">
+        <h3>2. Step Selection</h3>
+        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+            <button id="btn-L" style="flex:1" onclick="selectFoot('L')">LEFT</button>
+            <button id="btn-R" style="flex:1" onclick="selectFoot('R')">RIGHT</button>
+        </div>
+        <div style="display: flex; gap: 8px;">
+            <button id="btn-H" style="flex:1" onclick="selectType('H')">HEEL</button>
+            <button id="btn-T" style="flex:1" onclick="selectType('T')">TOE</button>
+        </div>
+    </div>
+
+    <div class="control-group">
+        <h3>3. Analysis</h3>
+        <table class="stats-table">
+            <thead>
+                <tr><th>Foot</th><th>Step</th><th>Stride</th><th>m/s</th></tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+        </table>
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button onclick="undoLast()" style="flex:1; background: #a44;">Undo</button>
+            <button onclick="resetMarkers()" style="flex:1; background: #600;">Clear</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    let isCalibrating = false, selectedFoot = null, selectedType = null;
+    let shoePx = 0, cmPerPx = 0, walkingDir = 1; 
+    let calPoints = [], markers = [];
+
+    document.getElementById('fileInput').onchange = (e) => {
+        video.src = URL.createObjectURL(e.target.files[0]);
+        video.onloadeddata = () => { canvas.width = video.clientWidth; canvas.height = video.clientHeight; draw(); };
+    };
+
+    function togglePlay() {
+        if (video.paused) { video.play(); document.getElementById('playBtn').innerText = "PAUSE"; }
+        else { video.pause(); document.getElementById('playBtn').innerText = "PLAY"; }
+    }
+
+    function toggleMute() { video.muted = !video.muted; document.getElementById('muteBtn').innerText = video.muted ? "UNMUTE" : "MUTE"; }
+
+    function changeFrame(dir) {
+        video.pause();
+        video.currentTime += (dir / parseInt(document.getElementById('fps').value));
+        document.getElementById('playBtn').innerText = "PLAY";
+    }
+
+    video.ontimeupdate = () => { document.getElementById('timecode').innerText = video.currentTime.toFixed(2); };
+
+    function startCalibrate() { isCalibrating = true; calPoints = []; document.getElementById('calBtn').classList.add('active-mode'); }
+    function selectFoot(f) { selectedFoot = f; updateButtons(); }
+    function selectType(t) { selectedType = t; updateButtons(); }
+    function updateButtons() {
+        ['L','R'].forEach(f => document.getElementById('btn-'+f).classList.toggle('selected', selectedFoot === f));
+        ['H','T'].forEach(t => document.getElementById('btn-'+t).classList.toggle('selected', selectedType === t));
+    }
+
+    canvas.onmousedown = (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+        const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+        if (isCalibrating) {
+            calPoints.push({x, y});
+            draw();
+            if (calPoints.length === 2) {
+                const cm = parseFloat(prompt("Enter shoe length in cm:", "30"));
+                shoePx = Math.abs(calPoints[1].x - calPoints[0].x);
+                cmPerPx = cm / shoePx;
+                isCalibrating = false;
+                document.getElementById('calBtn').classList.remove('active-mode');
+                draw();
+            }
+        } else if (selectedFoot && selectedType && cmPerPx > 0) {
+            if (markers.length === 0) walkingDir = (x < canvas.width / 2) ? 1 : -1;
+            
+            // Spatial logic: determine heel position
+            let heelX = (selectedType === 'T') ? (x - (shoePx * walkingDir)) : x;
+            
+            markers.push({ 
+                x: heelX, 
+                y, 
+                foot: selectedFoot, 
+                type: selectedType, // Track if it was a Heel or Toe click
+                time: video.currentTime 
+            });
+            selectedFoot = null; selectedType = null; updateButtons();
+            updateTable();
+            draw();
+        }
+    };
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.font = "bold 16px Arial"; // Increased font size
+
+        // Calibration drawing
+        if (calPoints.length > 0) {
+            ctx.strokeStyle = "red"; ctx.lineWidth = 3;
+            const offY = (calPoints.length === 2) ? canvas.height * 0.1 : 0;
+            calPoints.forEach(p => {
+                ctx.beginPath(); ctx.moveTo(p.x, p.y - offY - 15); ctx.lineTo(p.x, p.y - offY + 15); ctx.stroke();
+            });
+            if (calPoints.length === 2) {
+                ctx.beginPath(); ctx.moveTo(calPoints[0].x, calPoints[0].y - offY); ctx.lineTo(calPoints[1].x, calPoints[0].y - offY); ctx.stroke();
+                ctx.fillStyle = "red"; ctx.fillText(`${(shoePx * cmPerPx).toFixed(1)}cm Scale`, calPoints[0].x, calPoints[0].y - offY - 20);
+            }
+        }
+
+        markers.forEach((m, i) => {
+            const color = (m.foot === 'R') ? '#ff6b6b' : '#4CAF50';
+            ctx.strokeStyle = color; ctx.lineWidth = 4;
+            
+            // Heel Marker
+            ctx.beginPath(); ctx.moveTo(m.x, m.y - 20); ctx.lineTo(m.x, m.y + 20); ctx.stroke();
+            
+            // Ghost Footprint
+            ctx.fillStyle = color + '44';
+            const boxX = (walkingDir === 1) ? m.x : m.x - shoePx;
+            ctx.fillRect(boxX, m.y - 10, shoePx, 20);
+            
+            // Step Length Visualization
+            if (i > 0) {
+                const prev = markers[i-1];
+                const distCm = (Math.abs(m.x - prev.x) * cmPerPx).toFixed(1);
+                const dt = m.time - prev.time;
+                
+                // VALID SPEED LOGIC: Only show speed if both consecutive marks were Heels (initial contact)
+                const showSpeed = (m.type === 'H' && prev.type === 'H');
+                const speed = showSpeed ? ((distCm / 100) / dt).toFixed(2) : "";
+
+                ctx.strokeStyle = color; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.moveTo(prev.x, m.y); ctx.lineTo(m.x, m.y); ctx.stroke();
+                
+                ctx.fillStyle = color;
+                ctx.fillText(`${distCm}cm`, (m.x + prev.x)/2 - 20, m.y - 10);
+                if (showSpeed) {
+                    ctx.fillText(`${speed} m/s`, (m.x + prev.x)/2 - 20, m.y + 25);
+                }
+            }
+
+            // Stride Length Visualization (Heel to Heel only)
+            for (let j = i - 1; j >= 0; j--) {
+                if (markers[j].foot === m.foot) {
+                    const strideCm = (Math.abs(m.x - markers[j].x) * cmPerPx).toFixed(1);
+                    const offset = (m.foot === 'L') ? -70 : 70; // Staggered offsets for clarity
+                    ctx.strokeStyle = color; ctx.setLineDash([5, 5]);
+                    ctx.beginPath(); ctx.moveTo(markers[j].x, m.y + offset); ctx.lineTo(m.x, m.y + offset); ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.fillText(`${m.foot} Stride: ${strideCm}cm`, (m.x + markers[j].x)/2 - 40, m.y + offset - 10);
+                    break;
+                }
+            }
+        });
+    }
+
+    function updateTable() {
+        const body = document.getElementById('resultsBody');
+        body.innerHTML = "";
+        markers.forEach((m, i) => {
+            let step = "-", stride = "-", velocity = "-";
+            if (i > 0) {
+                const prev = markers[i-1], dt = m.time - prev.time;
+                const dCm = Math.abs(m.x - prev.x) * cmPerPx;
+                if (m.foot !== prev.foot) {
+                    step = dCm.toFixed(1);
+                    if (m.type === 'H' && prev.type === 'H') {
+                        velocity = ((dCm / 100) / dt).toFixed(2);
+                    }
+                }
+                for (let j = i-1; j >= 0; j--) {
+                    if (markers[j].foot === m.foot) { stride = (Math.abs(m.x - markers[j].x) * cmPerPx).toFixed(1); break; }
+                }
+            }
+            body.innerHTML += `<tr class="${m.foot==='R'?'r-row':'l-row'}"><td>${m.foot}</td><td>${step}</td><td>${stride}</td><td>${velocity}</td></tr>`;
+        });
+    }
+
+    async function captureScreen() {
+        const offscreen = document.createElement('canvas');
+        offscreen.width = video.videoWidth; offscreen.height = video.videoHeight;
+        const octx = offscreen.getContext('2d');
+        octx.drawImage(video, 0, 0);
+        octx.drawImage(canvas, 0, 0, offscreen.width, offscreen.height);
+        const link = document.createElement('a');
+        link.download = `gait_report_${Date.now()}.jpg`;
+        link.href = offscreen.toDataURL('image/jpeg', 0.9);
+        link.click();
+    }
+
+    function undoLast() { markers.pop(); draw(); updateTable(); }
+    function resetMarkers() { markers = []; draw(); updateTable(); }
+</script>
+</body>
+</html>
